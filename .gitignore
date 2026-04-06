@@ -52,11 +52,6 @@ _study/
 # Legacy app/ directory (stale Node.js copy of frontend libs, not maintained)
 /app/
 
-# Claude Code settings
-.claude/
-CLAUDE.md
-AGENTS.md
-
 # Frontend circuit artifacts (large binaries, download separately)
 
 # Generated frontend files
