@@ -1,0 +1,70 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build artifacts
+target/
+.next/
+out/
+dist/
+
+# Circuit build artifacts (large binary files)
+circuits/build/*.zkey
+circuits/build/*.ptau
+circuits/build/*.r1cs
+circuits/build/*.sym
+circuits/build/*.wtns
+circuits/build/darkdrop_js/
+circuits/build/minimal_test_js/
+circuits/build/proof.json
+circuits/build/public.json
+# Keep verification keys (small, needed for reference)
+!circuits/build/verification_key.json
+!circuits/build/verification_key_v2.json
+
+# Solana test ledger
+test-ledger/
+app/test-ledger/
+program/test-ledger/
+
+# Keypairs and secrets
+*.keypair.json
+*-keypair.json
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Notes (kept locally, not in repo)
+notes/
+
+# Study / reference repos
+_study/
+
+# Legacy app/ directory (stale Node.js copy of frontend libs, not maintained)
+app/
+
+# Claude Code settings
+.claude/
+CLAUDE.md
+AGENTS.md
+
+# Frontend circuit artifacts (large binaries, download separately)
+frontend/public/circuits/*.wasm
+frontend/public/circuits/*.zkey
+
+# Generated frontend files
+frontend/public/file.svg
+frontend/public/globe.svg
+frontend/public/next.svg
+frontend/public/vercel.svg
+frontend/public/window.svg
+frontend/README.md
