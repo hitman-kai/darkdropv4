@@ -58,8 +58,6 @@ CLAUDE.md
 AGENTS.md
 
 # Frontend circuit artifacts (large binaries, download separately)
-frontend/public/circuits/*.wasm
-frontend/public/circuits/*.zkey
 
 # Generated frontend files
 frontend/public/file.svg
