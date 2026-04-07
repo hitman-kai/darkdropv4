@@ -137,8 +137,8 @@ pub struct WithdrawCredit<'info> {
     #[account(mut)]
     pub recipient: UncheckedAccount<'info>,
 
-    /// CHECK: Fee recipient — receives fee when rate > 0
-    #[account(mut)]
+    /// CHECK: Fee recipient — must be the payer (signer) to prevent fee diversion.
+    #[account(mut, constraint = fee_recipient.key() == payer.key())]
     pub fee_recipient: UncheckedAccount<'info>,
 
     #[account(mut)]

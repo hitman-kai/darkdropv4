@@ -61,3 +61,6 @@ frontend/public/next.svg
 frontend/public/vercel.svg
 frontend/public/window.svg
 frontend/README.md
+.claude/
+CLAUDE.md
+AGENTS.md

@@ -153,8 +153,8 @@ pub struct Claim<'info> {
     #[account(mut)]
     pub recipient: UncheckedAccount<'info>,
 
-    /// CHECK: Fee recipient — relayer's address or any account.
-    #[account(mut)]
+    /// CHECK: Fee recipient — must be the payer (signer) to prevent fee diversion.
+    #[account(mut, constraint = fee_recipient.key() == payer.key())]
     pub fee_recipient: UncheckedAccount<'info>,
 
     /// Fee payer — the relayer (gasless) or the claimer (direct).

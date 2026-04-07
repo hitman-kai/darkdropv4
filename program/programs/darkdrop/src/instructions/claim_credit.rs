@@ -77,11 +77,11 @@ pub fn handle_claim_credit(
     emit!(CreditCreated {
         nullifier_hash,
         recipient: ctx.accounts.recipient.key(),
-        commitment: amount_commitment,
         timestamp: credit.created_at,
     });
 
     // NO SOL TRANSFER — NO AMOUNT IN INSTRUCTION DATA OR EVENTS
+    // Commitment deliberately omitted from event to prevent deposit→claim linkage.
 
     Ok(())
 }
@@ -147,6 +147,5 @@ pub struct ClaimCredit<'info> {
 pub struct CreditCreated {
     pub nullifier_hash: [u8; 32],
     pub recipient: Pubkey,
-    pub commitment: [u8; 32],
     pub timestamp: i64,
 }
