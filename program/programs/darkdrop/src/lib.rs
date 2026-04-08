@@ -51,14 +51,16 @@ pub mod darkdrop {
     }
 
     /// Claim as credit note: verify ZK proof (V2 circuit, 5 public inputs),
-    /// store commitment in CreditNote PDA. ZERO SOL moves.
+    /// store re-randomized commitment in CreditNote PDA. ZERO SOL moves.
+    /// Salt randomizes the stored commitment to prevent deposit→claim linkage.
     pub fn claim_credit(
         ctx: Context<ClaimCredit>,
         nullifier_hash: [u8; 32],
         proof: ProofData,
         inputs: Vec<u8>,
+        salt: [u8; 32],
     ) -> Result<()> {
-        instructions::claim_credit::handle_claim_credit(ctx, nullifier_hash, proof, inputs)
+        instructions::claim_credit::handle_claim_credit(ctx, nullifier_hash, proof, inputs, salt)
     }
 
     /// One-time migration: create Treasury PDA on existing deployments.

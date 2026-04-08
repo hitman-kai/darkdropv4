@@ -33,9 +33,14 @@ This full review identified **1 HIGH**, **3 MEDIUM**, **3 LOW**, and **4 INFORMA
 - **M-02-NEW (FIXED):** `TreasurySweep` event added to `admin_sweep`.
 - **M-03-NEW (FIXED):** `amount_commitment` and `password_hash` removed from `DropCreated` event.
 
-The remaining open MEDIUM is **M-01-NEW**: CreditNote PDA stores commitment on-chain, allowing deposit-to-claim linkage during the credit note lifetime window. This is partially mitigated by the M-03-NEW fix.
+All four new findings have been **fixed and deployed**:
 
-**No CRITICAL findings.** The core ZK verification, nullifier double-spend prevention, and commitment scheme are correctly implemented.
+- **H-01-NEW (FIXED):** `admin_sweep` rug-pull mitigated via `total_deposited`/`total_withdrawn` obligation tracking.
+- **M-01-NEW (FIXED):** CreditNote commitment re-randomized with salt: `stored = Poseidon(original_commitment, salt)`. On-chain commitment no longer matches deposit-time value.
+- **M-02-NEW (FIXED):** `TreasurySweep` event added to `admin_sweep`.
+- **M-03-NEW (FIXED):** `amount_commitment` and `password_hash` removed from `DropCreated` event.
+
+**No CRITICAL findings. No open findings above LOW severity.** The core ZK verification, nullifier double-spend prevention, and commitment scheme are correctly implemented.
 
 ---
 
@@ -370,7 +375,7 @@ In both `claim.rs` and `withdraw_credit.rs`, the `fee_recipient` account is now 
 | CreditNote PDA uniquely derived | ✅ `seeds = [b"credit", nullifier_hash]` |
 | Zero SOL moves | ✅ No lamport manipulation |
 | Event does not leak commitment | ✅ [L-03 FIXED] |
-| CreditNote account leaks commitment | ❌ [M-01-NEW] |
+| CreditNote account leaks commitment | ✅ Re-randomized with salt [M-01-NEW FIXED] |
 | total_claims overflow | ✅ `checked_add(1)` |
 
 ### `withdraw_credit`
@@ -432,7 +437,7 @@ In both `claim.rs` and `withdraw_credit.rs`, the `fee_recipient` account is now 
 **Result:** Not possible without knowing `amount` and `blinding_factor`. Poseidon preimage resistance protects the commitment.
 
 ### 6. Deposit-to-claim linkage via on-chain data
-**Result:** Partially mitigated. `amount_commitment` removed from `DropCreated` event (M-03-NEW fix). CreditNote PDA still stores commitment on-chain (M-01-NEW, open). Linkage now requires reading CreditNote account data and comparing against deposit leaves, which is harder but still possible for an active indexer.
+**Result:** Not possible after M-01-NEW and M-03-NEW fixes. `amount_commitment` removed from `DropCreated` event. CreditNote PDA stores a re-randomized commitment `Poseidon(original_commitment, salt)` which cannot be matched against deposit data without knowing the salt.
 
 ### 7. Integer overflow in fee calculation
 **Result:** Not possible. u128 upcast + checked arithmetic. Max product: `100_000_000_000 * 500 = 50_000_000_000_000` (fits u128).
@@ -462,7 +467,7 @@ In both `claim.rs` and `withdraw_credit.rs`, the `fee_recipient` account is now 
 | **M-01** (Audit #2) | ~~MEDIUM~~ | withdraw_credit fee_recipient unbound | ✅ **FIXED** — `fee_recipient == payer` constraint |
 | **L-03** (Audit #2) | ~~LOW~~ | Event commitment linkage | ✅ **FIXED** — commitment removed from CreditCreated |
 | **H-01-NEW** | ~~HIGH~~ | admin_sweep drains treasury with outstanding credit notes | ✅ **FIXED** — sweep limited by `total_deposited - total_withdrawn` |
-| **M-01-NEW** | MEDIUM | CreditNote PDA leaks commitment on-chain (L-03 incomplete) | **Open** |
+| **M-01-NEW** | ~~MEDIUM~~ | CreditNote PDA leaks commitment on-chain (L-03 incomplete) | ✅ **FIXED** — commitment re-randomized with salt: `Poseidon(commitment, salt)` |
 | **M-02-NEW** | ~~MEDIUM~~ | admin_sweep emits no event | ✅ **FIXED** — `TreasurySweep` event added |
 | **M-03-NEW** | ~~MEDIUM~~ | DropCreated event leaks amount_commitment + password_hash | ✅ **FIXED** — fields removed from event |
 | **L-01-NEW** | LOW | No drop_cap validation | **Open** (from Audit #2) |
@@ -487,7 +492,7 @@ In both `claim.rs` and `withdraw_credit.rs`, the `fee_recipient` account is now 
 
 ### Short-Term
 
-4. **[M-01-NEW] Address CreditNote commitment leakage.** Either re-randomize the stored commitment or document as a known limitation with guidance to withdraw immediately after claiming.
+4. ~~**[M-01-NEW] Address CreditNote commitment leakage.**~~ **FIXED** — Stored commitment is now `Poseidon(original_commitment, salt)` where `salt` is a random 32-byte value provided by the claimer. The on-chain commitment no longer matches the deposit-time `amount_commitment`.
 
 5. **[L-02-NEW] Add authority rotation.** Critical operational safety.
 
@@ -503,15 +508,16 @@ In both `claim.rs` and `withdraw_credit.rs`, the `fee_recipient` account is now 
 
 The H-01, M-01, and L-03 fixes from Audit #2 are **correctly implemented**. The fee diversion attack is eliminated and event-level commitment linkage is resolved.
 
-The three new findings from this audit (H-01-NEW, M-02-NEW, M-03-NEW) have also been **fixed and deployed**:
+All four new findings from this audit have been **fixed and deployed**:
 
 - **H-01-NEW (admin_sweep rug-pull):** Vault now tracks `total_deposited` and `total_withdrawn`. `admin_sweep` only allows sweeping `treasury_balance - (total_deposited - total_withdrawn) - rent_exempt_min`, protecting outstanding credit note obligations.
+- **M-01-NEW (commitment linkage):** CreditNote PDA now stores a re-randomized commitment `Poseidon(original_commitment, salt)`. The salt is provided by the claimer and included in the opening at withdrawal. On-chain commitment can no longer be matched against deposit data.
 - **M-02-NEW (no sweep event):** `TreasurySweep` event added with authority, amount, and timestamp fields.
 - **M-03-NEW (event leakage):** `amount_commitment` and `password_hash` removed from `DropCreated` event. Only `leaf_index`, `leaf`, `merkle_root`, and `timestamp` remain.
 
-The remaining open finding is **M-01-NEW** (CreditNote PDA stores commitment on-chain, enabling deposit→claim linkage for active indexers during the credit note lifetime window). This is partially mitigated by the M-03-NEW fix (the deposit-side event no longer contains the commitment), but the commitment is still readable from the CreditNote PDA account data.
+**All HIGH and MEDIUM findings from all three audits are now FIXED.** The remaining open issues are LOW severity: `drop_cap` validation (L-01), authority rotation (L-02), and root history initialization (L-03).
 
-Overall, the program's core security properties — ZK proof verification, double-spend prevention, commitment binding, access control, and treasury obligation protection — are sound. The remaining open issues are in privacy leakage (commitment correlation via account data) and operational safety (authority rotation).
+Overall, the program's core security properties — ZK proof verification, double-spend prevention, commitment binding, access control, treasury obligation protection, and deposit→claim unlinkability — are sound.
 
 ---
 

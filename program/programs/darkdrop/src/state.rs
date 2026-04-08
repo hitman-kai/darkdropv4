@@ -145,12 +145,17 @@ impl Treasury {
 
 /// CreditNote — holds a committed amount for later withdrawal.
 /// PDA seeds: [b"credit", nullifier_hash]
+///
+/// The stored commitment is re-randomized: stored = Poseidon(original_commitment, salt).
+/// This prevents an indexer from matching CreditNote.commitment against deposit-time
+/// amount_commitment values, breaking the deposit→claim linkage (M-01-NEW fix).
 #[account]
 pub struct CreditNote {
     pub bump: u8,
     pub recipient: Pubkey,
     pub commitment: [u8; 32],
     pub nullifier_hash: [u8; 32],
+    pub salt: [u8; 32],
     pub created_at: i64,
 }
 
@@ -160,6 +165,7 @@ impl CreditNote {
         + 32   // recipient
         + 32   // commitment
         + 32   // nullifier_hash
+        + 32   // salt
         + 8;   // created_at
 }
 

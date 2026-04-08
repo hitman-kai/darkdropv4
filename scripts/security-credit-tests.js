@@ -92,16 +92,20 @@ const BN254_FQ = 218882428718392752222464057452572750886963111572978236626890378
 
 // ──────────────────── TX builders ────────────────────
 
-function buildClaimCreditIx({ vault, merkleTree, creditNotePDA, nullifierPDA, recipient, payer, nullifierHashBytes, proofA, proofB, proofC, onChainRoot, amtCommitment, pwdHash }) {
+function buildClaimCreditIx({ vault, merkleTree, creditNotePDA, nullifierPDA, recipient, payer, nullifierHashBytes, proofA, proofB, proofC, onChainRoot, amtCommitment, pwdHash, salt }) {
   const opaqueInputs = Buffer.concat([onChainRoot, bigintToBytes32BE(amtCommitment), bigintToBytes32BE(pwdHash)]);
   const inputsLenBuf = Buffer.alloc(4);
   inputsLenBuf.writeUInt32LE(opaqueInputs.length);
+
+  // salt: 32-byte random value for re-randomizing the stored commitment
+  const saltBytes = salt ? bigintToBytes32BE(salt) : crypto.randomBytes(32);
 
   const data = Buffer.concat([
     getDiscriminator("claim_credit"),
     nullifierHashBytes,
     proofA, proofB, proofC,
     inputsLenBuf, opaqueInputs,
+    saltBytes,
   ]);
 
   return new TransactionInstruction({
@@ -119,10 +123,11 @@ function buildClaimCreditIx({ vault, merkleTree, creditNotePDA, nullifierPDA, re
   });
 }
 
-function buildWithdrawCreditIx({ vault, treasury, creditNotePDA, recipient, feeRecipient, payer, nullifierHashBytes, amount, blindingFactor, rate = 0 }) {
+function buildWithdrawCreditIx({ vault, treasury, creditNotePDA, recipient, feeRecipient, payer, nullifierHashBytes, amount, blindingFactor, salt, rate = 0 }) {
   const openingAmountBuf = Buffer.alloc(8);
   openingAmountBuf.writeBigUInt64LE(amount);
-  const opening = Buffer.concat([openingAmountBuf, bigintToBytes32BE(blindingFactor)]);
+  const saltBytes = salt ? bigintToBytes32BE(salt) : Buffer.alloc(32);
+  const opening = Buffer.concat([openingAmountBuf, bigintToBytes32BE(blindingFactor), saltBytes]);
   const openingLenBuf = Buffer.alloc(4);
   openingLenBuf.writeUInt32LE(opening.length);
   const rateBuf = Buffer.alloc(2);
@@ -302,25 +307,27 @@ async function main() {
   const [nullifierPDA] = getNullifierPDA(proofData.nullifierHashBytes);
   const [creditNotePDA] = getCreditNotePDA(proofData.nullifierHashBytes);
 
-  // claim_credit (valid)
+  // claim_credit (valid) — generate random salt for commitment re-randomization
+  const salt1 = randomField();
   const claimIx = buildClaimCreditIx({
     vault, merkleTree, creditNotePDA, nullifierPDA,
     recipient: recipient.publicKey, payer: payer.publicKey,
     nullifierHashBytes: proofData.nullifierHashBytes,
     proofA: proofData.proofA, proofB: proofData.proofB, proofC: proofData.proofC,
     onChainRoot: proofData.onChainRoot, amtCommitment: proofData.amtCommitment, pwdHash: proofData.pwdHash,
+    salt: salt1,
   });
   await sendAndConfirmTransaction(connection, new Transaction().add(
     ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), claimIx
   ), [payer]);
   console.log("  claim_credit succeeded");
 
-  // Valid withdraw (for test 1 setup)
+  // Valid withdraw (for test 1 setup) — must include same salt
   const withdrawIx = buildWithdrawCreditIx({
     vault, treasury, creditNotePDA,
     recipient: recipient.publicKey, feeRecipient: payer.publicKey, payer: payer.publicKey,
     nullifierHashBytes: proofData.nullifierHashBytes,
-    amount: dropAmount, blindingFactor,
+    amount: dropAmount, blindingFactor, salt: salt1,
   });
   await sendAndConfirmTransaction(connection, new Transaction().add(withdrawIx), [payer]);
   console.log("  withdraw_credit succeeded (setup complete)\n");
@@ -332,7 +339,7 @@ async function main() {
       vault, treasury, creditNotePDA,
       recipient: recipient.publicKey, feeRecipient: payer.publicKey, payer: payer.publicKey,
       nullifierHashBytes: proofData.nullifierHashBytes,
-      amount: dropAmount, blindingFactor,
+      amount: dropAmount, blindingFactor, salt: salt1,
     });
     const tx = new Transaction().add(withdrawIx2);
     const result = await expectTxFail(connection, tx, [payer]);
@@ -374,12 +381,14 @@ async function main() {
   const [nullifierPDA2] = getNullifierPDA(proofData2.nullifierHashBytes);
   const [creditNotePDA2] = getCreditNotePDA(proofData2.nullifierHashBytes);
 
+  const salt2 = randomField();
   const claimIx2 = buildClaimCreditIx({
     vault, merkleTree, creditNotePDA: creditNotePDA2, nullifierPDA: nullifierPDA2,
     recipient: recipient.publicKey, payer: payer.publicKey,
     nullifierHashBytes: proofData2.nullifierHashBytes,
     proofA: proofData2.proofA, proofB: proofData2.proofB, proofC: proofData2.proofC,
     onChainRoot: proofData2.onChainRoot, amtCommitment: proofData2.amtCommitment, pwdHash: proofData2.pwdHash,
+    salt: salt2,
   });
   await sendAndConfirmTransaction(connection, new Transaction().add(
     ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), claimIx2
@@ -394,7 +403,7 @@ async function main() {
       vault, treasury, creditNotePDA: creditNotePDA2,
       recipient: recipient.publicKey, feeRecipient: payer.publicKey, payer: payer.publicKey,
       nullifierHashBytes: proofData2.nullifierHashBytes,
-      amount: badAmount, blindingFactor: blindingFactor2,
+      amount: badAmount, blindingFactor: blindingFactor2, salt: salt2,
     });
     const tx = new Transaction().add(withdrawIx);
     const result = await expectTxFail(connection, tx, [payer], "CommitmentMismatch");
@@ -409,7 +418,7 @@ async function main() {
       vault, treasury, creditNotePDA: creditNotePDA2,
       recipient: recipient.publicKey, feeRecipient: payer.publicKey, payer: payer.publicKey,
       nullifierHashBytes: proofData2.nullifierHashBytes,
-      amount: dropAmount, blindingFactor: badBlinding,
+      amount: dropAmount, blindingFactor: badBlinding, salt: salt2,
     });
     const tx = new Transaction().add(withdrawIx);
     const result = await expectTxFail(connection, tx, [payer], "CommitmentMismatch");
@@ -424,7 +433,7 @@ async function main() {
       vault, treasury, creditNotePDA: creditNotePDA2,
       recipient: wrongRecipient.publicKey, feeRecipient: payer.publicKey, payer: payer.publicKey,
       nullifierHashBytes: proofData2.nullifierHashBytes,
-      amount: dropAmount, blindingFactor: blindingFactor2,
+      amount: dropAmount, blindingFactor: blindingFactor2, salt: salt2,
     });
     const tx = new Transaction().add(withdrawIx);
     const result = await expectTxFail(connection, tx, [payer], "UnauthorizedWithdraw");
@@ -441,7 +450,7 @@ async function main() {
       vault, treasury, creditNotePDA: fakeCreditNote,
       recipient: recipient.publicKey, feeRecipient: payer.publicKey, payer: payer.publicKey,
       nullifierHashBytes: fakeNullifierHash,
-      amount: dropAmount, blindingFactor: blindingFactor2,
+      amount: dropAmount, blindingFactor: blindingFactor2, salt: salt2,
     });
     const tx = new Transaction().add(withdrawIx);
     // Should fail because the CreditNote PDA doesn't exist (AccountNotInitialized or similar)
@@ -458,7 +467,7 @@ async function main() {
       vault, treasury, creditNotePDA: creditNotePDA2,
       recipient: recipient.publicKey, feeRecipient: payer.publicKey, payer: payer.publicKey,
       nullifierHashBytes: proofData2.nullifierHashBytes,
-      amount: tamperedAmount, blindingFactor: blindingFactor2,
+      amount: tamperedAmount, blindingFactor: blindingFactor2, salt: salt2,
     });
     const tx = new Transaction().add(withdrawIx);
     const result = await expectTxFail(connection, tx, [payer], "CommitmentMismatch");
@@ -472,7 +481,7 @@ async function main() {
       vault, treasury, creditNotePDA: creditNotePDA2,
       recipient: recipient.publicKey, feeRecipient: payer.publicKey, payer: payer.publicKey,
       nullifierHashBytes: proofData2.nullifierHashBytes,
-      amount: dropAmount, blindingFactor: blindingFactor2,
+      amount: dropAmount, blindingFactor: blindingFactor2, salt: salt2,
     });
     await sendAndConfirmTransaction(connection, new Transaction().add(withdrawIx), [payer]);
     console.log("  Cleanup withdraw succeeded");

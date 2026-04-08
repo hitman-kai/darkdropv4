@@ -316,6 +316,10 @@ async function main() {
 
   const claimCreditDiscriminator = getDiscriminator("claim_credit");
 
+  // Generate random salt for commitment re-randomization (M-01-NEW fix)
+  const salt = randomField();
+  const saltBytes = bigintToBytes32BE(salt);
+
   const claimCreditData = Buffer.concat([
     claimCreditDiscriminator,    // 8
     nullifierHashBytes,          // 32 — nullifier_hash
@@ -323,6 +327,7 @@ async function main() {
     proofB,                      // 128 — proof.proof_b
     proofC,                      // 64 — proof.proof_c
     inputsEncoded,               // 4 + 96 — Vec<u8> inputs
+    saltBytes,                   // 32 — salt for re-randomized commitment
   ]);
 
   const claimCreditIx = new TransactionInstruction({
@@ -393,11 +398,11 @@ async function main() {
 
   const recipientBalBefore = await connection.getBalance(recipient.publicKey);
 
-  // Pack opaque opening: amount(8 LE) + blinding_factor(32)
+  // Pack opaque opening: amount(8 LE) + blinding_factor(32) + salt(32)
   const openingAmountBuf = Buffer.alloc(8);
   openingAmountBuf.writeBigUInt64LE(dropAmount);
   const openingBlinding = bigintToBytes32BE(blindingFactor);
-  const opening = Buffer.concat([openingAmountBuf, openingBlinding]);
+  const opening = Buffer.concat([openingAmountBuf, openingBlinding, saltBytes]);
 
   // Borsh-encode Vec<u8>
   const openingLenBuf = Buffer.alloc(4);

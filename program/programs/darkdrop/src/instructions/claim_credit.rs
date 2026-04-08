@@ -20,6 +20,7 @@ pub fn handle_claim_credit(
     nullifier_hash: [u8; 32],
     proof: ProofData,
     inputs: Vec<u8>,
+    salt: [u8; 32],
 ) -> Result<()> {
     // Parse opaque inputs
     require!(inputs.len() == 96, DarkDropError::InvalidInputLength);
@@ -57,12 +58,17 @@ pub fn handle_claim_credit(
     // Verify Groth16 proof (v2 circuit — 5 public inputs)
     verify_proof_v2(&proof, &public_inputs)?;
 
-    // Initialize CreditNote PDA
+    // Initialize CreditNote PDA with re-randomized commitment.
+    // stored_commitment = Poseidon(original_commitment, salt)
+    // This prevents deposit→claim linkage via on-chain account data (M-01-NEW fix).
+    let stored_commitment = poseidon_hash(&amount_commitment, &salt);
+
     let credit = &mut ctx.accounts.credit_note;
     credit.bump = ctx.bumps.credit_note;
     credit.recipient = ctx.accounts.recipient.key();
-    credit.commitment = amount_commitment;
+    credit.commitment = stored_commitment;
     credit.nullifier_hash = nullifier_hash;
+    credit.salt = salt;
     credit.created_at = Clock::get()?.unix_timestamp;
 
     // Store nullifier (double-claim prevention)

@@ -9,6 +9,9 @@ use crate::poseidon::poseidon_hash;
 /// The `opening` parameter is an opaque byte vector containing:
 ///   [0..8]   amount (u64 little-endian)
 ///   [8..40]  blinding factor (32 bytes)
+///   [40..72] salt (32 bytes) — used to verify re-randomized commitment
+///
+/// Verification: Poseidon(Poseidon(amount, blinding), salt) == stored_commitment
 ///
 /// Fee is computed from `rate` (basis points). rate=50 → 0.5% fee.
 /// No field is named "amount", "fee", or "lamports".
@@ -22,11 +25,12 @@ pub fn handle_withdraw_credit(
     opening: Vec<u8>,
     rate: u16,
 ) -> Result<()> {
-    // Parse opaque opening
-    require!(opening.len() == 40, DarkDropError::InvalidInputLength);
+    // Parse opaque opening (72 bytes: amount + blinding + salt)
+    require!(opening.len() == 72, DarkDropError::InvalidInputLength);
 
     let amount = u64::from_le_bytes(opening[0..8].try_into().unwrap());
     let blinding_factor: [u8; 32] = opening[8..40].try_into().unwrap();
+    let salt: [u8; 32] = opening[40..72].try_into().unwrap();
 
     let credit = &ctx.accounts.credit_note;
 
@@ -36,11 +40,14 @@ pub fn handle_withdraw_credit(
         DarkDropError::UnauthorizedWithdraw
     );
 
-    // Recompute Poseidon(amount, blinding_factor) on-chain
+    // Recompute the re-randomized commitment:
+    //   original = Poseidon(amount, blinding_factor)
+    //   stored   = Poseidon(original, salt)
     let amount_bytes = u64_to_field_be(amount);
-    let computed_commitment = poseidon_hash(&amount_bytes, &blinding_factor);
+    let original_commitment = poseidon_hash(&amount_bytes, &blinding_factor);
+    let computed_commitment = poseidon_hash(&original_commitment, &salt);
 
-    // Verify commitment matches stored value
+    // Verify re-randomized commitment matches stored value
     require!(
         computed_commitment == credit.commitment,
         DarkDropError::CommitmentMismatch

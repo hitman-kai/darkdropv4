@@ -117,9 +117,10 @@ function buildCreateDrop(sender, leaf, amount, commitment, pwdHash) {
   ], data: Buffer.concat([disc("create_drop"), b32(leaf), ab, b32(commitment), b32(pwdHash)]) });
 }
 
-function buildClaimCredit(nhb, proofA, proofB, proofC, root, commitment, pwdHash, recipient, payer) {
+function buildClaimCredit(nhb, proofA, proofB, proofC, root, commitment, pwdHash, recipient, payer, saltBigint) {
   const inp = Buffer.concat([root, b32(commitment), b32(pwdHash)]);
   const il = Buffer.alloc(4); il.writeUInt32LE(96);
+  const saltBytes = b32(saltBigint);
   return new TransactionInstruction({ programId: PROGRAM_ID, keys: [
     { pubkey: vault, isSigner: false, isWritable: true },
     { pubkey: merkleTree, isSigner: false, isWritable: false },
@@ -128,13 +129,13 @@ function buildClaimCredit(nhb, proofA, proofB, proofC, root, commitment, pwdHash
     { pubkey: recipient, isSigner: false, isWritable: false },
     { pubkey: payer, isSigner: true, isWritable: true },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-  ], data: Buffer.concat([disc("claim_credit"), nhb, proofA, proofB, proofC, il, inp]) });
+  ], data: Buffer.concat([disc("claim_credit"), nhb, proofA, proofB, proofC, il, inp, saltBytes]) });
 }
 
-function buildWithdrawCredit(nhb, amount, blindingFactor, recipient, feeRecipient, payer) {
+function buildWithdrawCredit(nhb, amount, blindingFactor, saltBigint, recipient, feeRecipient, payer) {
   const ob = Buffer.alloc(8); ob.writeBigUInt64LE(amount);
-  const opening = Buffer.concat([ob, b32(blindingFactor)]);
-  const ol = Buffer.alloc(4); ol.writeUInt32LE(40);
+  const opening = Buffer.concat([ob, b32(blindingFactor), b32(saltBigint)]);
+  const ol = Buffer.alloc(4); ol.writeUInt32LE(72);
   const rb = Buffer.alloc(2); rb.writeUInt16LE(0);
   return new TransactionInstruction({ programId: PROGRAM_ID, keys: [
     { pubkey: vault, isSigner: false, isWritable: true },
@@ -310,14 +311,15 @@ async function main() {
 
     // claim_credit
     const t1 = now();
-    const ccIx = buildClaimCredit(pd.nhb, pd.pA, pd.pB, pd.pC, pd.root, pd.amtC, 0n, claimer.publicKey, funder.publicKey);
+    const dropSalt = rf();
+    const ccIx = buildClaimCredit(pd.nhb, pd.pA, pd.pB, pd.pC, pd.root, pd.amtC, 0n, claimer.publicKey, funder.publicKey, dropSalt);
     const ccTx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ccIx);
     const ccSig = await sendAndConfirmTransaction(connection, ccTx, [funder]);
     const claimMs = now() - t1;
 
     // withdraw_credit
     const t2 = now();
-    const wdIx = buildWithdrawCredit(pd.nhb, drop.amount, drop.blindingFactor, claimer.publicKey, funder.publicKey, funder.publicKey);
+    const wdIx = buildWithdrawCredit(pd.nhb, drop.amount, drop.blindingFactor, dropSalt, claimer.publicKey, funder.publicKey, funder.publicKey);
     const wdTx = new Transaction().add(wdIx);
     const wdSig = await sendAndConfirmTransaction(connection, wdTx, [funder]);
     const withdrawMs = now() - t2;
@@ -442,8 +444,9 @@ async function main() {
     }
 
     // Submit all 3 claim_credits simultaneously (don't wait between them)
+    const concSalts = concProofs.map(() => rf());
     const claimPromises = concProofs.map((proof, i) => {
-      const ccIx = buildClaimCredit(proof.nhb, proof.pA, proof.pB, proof.pC, proof.root, proof.amtC, 0n, concClaimers[i].publicKey, funder.publicKey);
+      const ccIx = buildClaimCredit(proof.nhb, proof.pA, proof.pB, proof.pC, proof.root, proof.amtC, 0n, concClaimers[i].publicKey, funder.publicKey, concSalts[i]);
       const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ccIx);
       return sendAndConfirmTransaction(connection, tx, [funder])
         .then(sig => ({ i, sig, ok: true }))
@@ -463,7 +466,7 @@ async function main() {
       if (!r.ok) continue;
       const i = r.i;
       try {
-        const wdIx = buildWithdrawCredit(concProofs[i].nhb, concDrops[i].amount, concDrops[i].blindingFactor, concClaimers[i].publicKey, funder.publicKey, funder.publicKey);
+        const wdIx = buildWithdrawCredit(concProofs[i].nhb, concDrops[i].amount, concDrops[i].blindingFactor, concSalts[i], concClaimers[i].publicKey, funder.publicKey, funder.publicKey);
         await sendAndConfirmTransaction(connection, new Transaction().add(wdIx), [funder]);
         concWithdraws++;
       } catch (e) {

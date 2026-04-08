@@ -186,10 +186,14 @@ export default function ClaimPage() {
       opaqueInputs.set(proofResult.amountCommitment, 32);
       opaqueInputs.set(proofResult.passwordHash, 64);
 
-      // Pack opaque opening: amount(8 LE) + blinding_factor(32)
-      const openingBuf = new Uint8Array(40);
+      // Generate random salt for commitment re-randomization (privacy: prevents deposit→claim linkage)
+      const saltBytes = crypto.getRandomValues(new Uint8Array(32));
+
+      // Pack opaque opening: amount(8 LE) + blinding_factor(32) + salt(32)
+      const openingBuf = new Uint8Array(72);
       new DataView(openingBuf.buffer).setBigUint64(0, amount, true);
       openingBuf.set(bigintToBytes32BE(blindingFactor), 8);
+      openingBuf.set(saltBytes, 40);
 
       if (claimMode === "relayer") {
         // Step 4a: Send claim_credit via relayer
@@ -205,6 +209,7 @@ export default function ClaimPage() {
             nullifierHash: Array.from(nullifierHashBytes),
             recipient: publicKey!.toBase58(),
             inputs: Array.from(opaqueInputs),
+            salt: Array.from(saltBytes),
           }),
         });
         const claimResult = await claimResp.json();
@@ -238,7 +243,7 @@ export default function ClaimPage() {
         new DataView(inputsLenBuf.buffer).setUint32(0, 96, true);
 
         const claimCreditData = new Uint8Array(
-          8 + 32 + 64 + 128 + 64 + 4 + 96
+          8 + 32 + 64 + 128 + 64 + 4 + 96 + 32
         );
         let off = 0;
         claimCreditData.set(CLAIM_CREDIT_DISCRIMINATOR, off); off += 8;
@@ -247,7 +252,8 @@ export default function ClaimPage() {
         claimCreditData.set(proofResult.proofB, off); off += 128;
         claimCreditData.set(proofResult.proofC, off); off += 64;
         claimCreditData.set(inputsLenBuf, off); off += 4;
-        claimCreditData.set(opaqueInputs, off);
+        claimCreditData.set(opaqueInputs, off); off += 96;
+        claimCreditData.set(saltBytes, off);
 
         const claimCreditIx = new TransactionInstruction({
           programId: PROGRAM_ID,
@@ -273,10 +279,10 @@ export default function ClaimPage() {
         // TX 2: withdraw_credit (SOL moves via direct lamport manipulation)
         setStage("withdrawing");
         const openingLenBuf = new Uint8Array(4);
-        new DataView(openingLenBuf.buffer).setUint32(0, 40, true);
+        new DataView(openingLenBuf.buffer).setUint32(0, 72, true);
         const rateBuf = new Uint8Array(2); // rate = 0 for direct
 
-        const withdrawData = new Uint8Array(8 + 32 + 4 + 40 + 2);
+        const withdrawData = new Uint8Array(8 + 32 + 4 + 72 + 2);
         off = 0;
         withdrawData.set(WITHDRAW_CREDIT_DISCRIMINATOR, off); off += 8;
         withdrawData.set(nullifierHashBytes, off); off += 32;

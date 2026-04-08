@@ -70,16 +70,18 @@ interface CreditClaimRequest {
   nullifierHash: number[];    // 32 bytes
   recipient: string;          // base58 pubkey
   inputs: number[];           // 96 bytes: merkle_root(32) + commitment(32) + seed(32)
+  salt: number[];             // 32 bytes: random salt for commitment re-randomization
 }
 
 router.post("/claim", async (req: Request, res: Response) => {
   try {
     const body = req.body as CreditClaimRequest;
 
-    if (!body.proof?.proofA || !body.nullifierHash || !body.recipient || !body.inputs) {
+    if (!body.proof?.proofA || !body.nullifierHash || !body.recipient || !body.inputs || !body.salt) {
       return res.status(400).json({ error: "Missing required fields" });
     }
     if (body.inputs.length !== 96) return res.status(400).json({ error: "inputs must be 96 bytes" });
+    if (body.salt.length !== 32) return res.status(400).json({ error: "salt must be 32 bytes" });
 
     const relayer = loadRelayerKeypair();
     const connection = new Connection(config.rpcUrl, "confirmed");
@@ -102,6 +104,8 @@ router.post("/claim", async (req: Request, res: Response) => {
     const inputsLenBuf = Buffer.alloc(4);
     inputsLenBuf.writeUInt32LE(inputsBuf.length);
 
+    const saltBuf = Buffer.from(body.salt);
+
     const instructionData = Buffer.concat([
       CLAIM_CREDIT_DISC,
       Buffer.from(body.nullifierHash),
@@ -110,6 +114,7 @@ router.post("/claim", async (req: Request, res: Response) => {
       Buffer.from(body.proof.proofC),
       inputsLenBuf,
       inputsBuf,
+      saltBuf,
     ]);
 
     const ix = new TransactionInstruction({
@@ -156,7 +161,7 @@ router.post("/claim", async (req: Request, res: Response) => {
 // ─── POST /withdraw ──────────────────────────────────────────
 interface CreditWithdrawRequest {
   nullifierHash: number[];    // 32 bytes
-  opening: number[];          // 40 bytes: amount(8 LE) + blinding(32)
+  opening: number[];          // 72 bytes: amount(8 LE) + blinding(32) + salt(32)
   recipient: string;          // base58 pubkey
 }
 
@@ -167,7 +172,7 @@ router.post("/withdraw", async (req: Request, res: Response) => {
     if (!body.nullifierHash || !body.opening || !body.recipient) {
       return res.status(400).json({ error: "Missing required fields" });
     }
-    if (body.opening.length !== 40) return res.status(400).json({ error: "opening must be 40 bytes" });
+    if (body.opening.length !== 72) return res.status(400).json({ error: "opening must be 72 bytes" });
 
     const relayer = loadRelayerKeypair();
     const connection = new Connection(config.rpcUrl, "confirmed");
