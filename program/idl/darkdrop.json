@@ -2,7 +2,7 @@
   "address": "GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU",
   "metadata": {
     "name": "darkdrop",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "spec": "0.1.0",
     "description": "DarkDrop V4 — Privacy-first value transfer on Solana"
   },
@@ -229,7 +229,8 @@
       "args": [
         { "name": "nullifier_hash", "type": { "array": ["u8", 32] } },
         { "name": "proof", "type": { "defined": { "name": "ProofData" } } },
-        { "name": "inputs", "type": "bytes" }
+        { "name": "inputs", "type": "bytes" },
+        { "name": "nonce", "type": { "array": ["u8", 32] } }
       ]
     },
     {
@@ -238,6 +239,7 @@
       "accounts": [
         {
           "name": "vault",
+          "writable": true,
           "pda": {
             "seeds": [
               { "kind": "const", "value": [118, 97, 117, 108, 116] }
@@ -286,6 +288,178 @@
         { "name": "opening", "type": "bytes" },
         { "name": "rate", "type": "u16" }
       ]
+    },
+    {
+      "name": "initialize_note_pool",
+      "discriminator": [155, 81, 109, 95, 7, 142, 2, 199],
+      "accounts": [
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [118, 97, 117, 108, 116] }
+            ]
+          }
+        },
+        {
+          "name": "note_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [110, 111, 116, 101, 95, 112, 111, 111, 108] }
+            ]
+          }
+        },
+        {
+          "name": "pool_tree",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [110, 111, 116, 101, 95, 112, 111, 111, 108, 95, 116, 114, 101, 101] },
+              { "kind": "account", "path": "vault" }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "deposit_to_note_pool",
+      "discriminator": [185, 144, 159, 128, 240, 90, 234, 156],
+      "accounts": [
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [118, 97, 117, 108, 116] }
+            ]
+          }
+        },
+        {
+          "name": "note_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [110, 111, 116, 101, 95, 112, 111, 111, 108] }
+            ]
+          }
+        },
+        {
+          "name": "pool_tree",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [110, 111, 116, 101, 95, 112, 111, 111, 108, 95, 116, 114, 101, 101] },
+              { "kind": "account", "path": "vault" }
+            ]
+          }
+        },
+        {
+          "name": "credit_note",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [99, 114, 101, 100, 105, 116] },
+              { "kind": "arg", "path": "nullifier_hash" }
+            ]
+          }
+        },
+        {
+          "name": "recipient"
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        { "name": "nullifier_hash", "type": { "array": ["u8", 32] } },
+        { "name": "data", "type": "bytes" },
+        { "name": "params", "type": "bytes" }
+      ]
+    },
+    {
+      "name": "claim_from_note_pool",
+      "discriminator": [253, 6, 222, 21, 191, 226, 43, 142],
+      "accounts": [
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [118, 97, 117, 108, 116] }
+            ]
+          }
+        },
+        {
+          "name": "note_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [110, 111, 116, 101, 95, 112, 111, 111, 108] }
+            ]
+          }
+        },
+        {
+          "name": "pool_tree",
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [110, 111, 116, 101, 95, 112, 111, 111, 108, 95, 116, 114, 101, 101] },
+              { "kind": "account", "path": "vault" }
+            ]
+          }
+        },
+        {
+          "name": "credit_note",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [99, 114, 101, 100, 105, 116] },
+              { "kind": "arg", "path": "pool_nullifier_hash" }
+            ]
+          }
+        },
+        {
+          "name": "pool_nullifier_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [112, 111, 111, 108, 95, 110, 117, 108, 108, 105, 102, 105, 101, 114] },
+              { "kind": "arg", "path": "pool_nullifier_hash" }
+            ]
+          }
+        },
+        {
+          "name": "recipient"
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        { "name": "pool_nullifier_hash", "type": { "array": ["u8", 32] } },
+        { "name": "proof", "type": { "defined": { "name": "ProofData" } } },
+        { "name": "inputs", "type": "bytes" }
+      ]
     }
   ],
   "accounts": [
@@ -304,6 +478,14 @@
     {
       "name": "CreditNote",
       "discriminator": [227, 76, 104, 33, 171, 126, 61, 232]
+    },
+    {
+      "name": "NotePool",
+      "discriminator": [0, 0, 0, 0, 0, 0, 0, 0]
+    },
+    {
+      "name": "PoolNullifierAccount",
+      "discriminator": [0, 0, 0, 0, 0, 0, 0, 0]
     }
   ],
   "events": [
@@ -317,6 +499,18 @@
     },
     {
       "name": "CreditWithdrawn",
+      "discriminator": [0, 0, 0, 0, 0, 0, 0, 0]
+    },
+    {
+      "name": "NotePoolDeposit",
+      "discriminator": [0, 0, 0, 0, 0, 0, 0, 0]
+    },
+    {
+      "name": "NotePoolClaim",
+      "discriminator": [0, 0, 0, 0, 0, 0, 0, 0]
+    },
+    {
+      "name": "TreasurySweep",
       "discriminator": [0, 0, 0, 0, 0, 0, 0, 0]
     }
   ],
@@ -356,7 +550,9 @@
           { "name": "total_drops", "type": "u64" },
           { "name": "total_claims", "type": "u64" },
           { "name": "cap", "type": "u64" },
-          { "name": "merkle_tree", "type": "pubkey" }
+          { "name": "merkle_tree", "type": "pubkey" },
+          { "name": "total_deposited", "type": "u64" },
+          { "name": "total_withdrawn", "type": "u64" }
         ]
       }
     },
@@ -387,7 +583,28 @@
           { "name": "recipient", "type": "pubkey" },
           { "name": "commitment", "type": { "array": ["u8", 32] } },
           { "name": "nullifier_hash", "type": { "array": ["u8", 32] } },
+          { "name": "nonce", "type": { "array": ["u8", 32] } },
           { "name": "created_at", "type": "i64" }
+        ]
+      }
+    },
+    {
+      "name": "NotePool",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "bump", "type": "u8" },
+          { "name": "total_deposits", "type": "u64" },
+          { "name": "total_claims", "type": "u64" }
+        ]
+      }
+    },
+    {
+      "name": "PoolNullifierAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "nullifier_hash", "type": { "array": ["u8", 32] } }
         ]
       }
     }

@@ -178,9 +178,9 @@ on-chain: [x1, x0, y1, y0]  (each 32 bytes BE)
 
 Each nullifier gets its own PDA: `seeds = [b"nullifier", nullifier_hash]`. Anchor's `init` constraint gives double-spend prevention for free.
 
-### 7. Dual verification keys compiled into the program
+### 7. Triple verification keys compiled into the program
 
-V1 and V2 VKs are both compiled into `vk.rs` as constants. `verifying_key_v1()` for legacy `claim`, `verifying_key_v2()` for `claim_credit`.
+V1, V2, and V3 VKs are compiled into `vk.rs` as constants. `verifying_key_v1()` for legacy `claim`, `verifying_key_v2()` for `claim_credit`, `verifying_key_v3()` for `claim_from_note_pool`.
 
 ### 8. Root history — fixed-size circular buffer
 
@@ -199,9 +199,80 @@ Recipient never signs. Only `payer` signs. ZK proof binds to recipient via `Pose
 
 See "CREDIT NOTE ARCHITECTURE (V2)" section above. This replaces the earlier "amounts are visible" architectural note. Amounts ARE visible at deposit time (CPI transfer), but the claim TX contains zero amount information, and the withdraw TX uses direct lamport manipulation with no inner instructions.
 
-### 12. No revoke/admin-sweep instruction yet
+### 12. Admin sweep with obligation tracking
 
-Blueprint Phase 8 item. ~0.2 SOL stuck in legacy sol_vault PDA. Additional small amounts may accumulate in treasury from rent-exempt minimums.
+`admin_sweep` transfers excess SOL from treasury to authority. Sweep is limited to `treasury_balance - (total_deposited - total_withdrawn) - rent_exempt_min`, preventing the authority from sweeping funds belonging to outstanding credit notes. Emits a `TreasurySweep` event.
+
+### 13. Note Pool — second-layer Merkle mixer for credit notes
+
+The Note Pool provides recursive privacy: the first ZK proof (V2, `claim_credit`) hides which deposit was claimed. The second ZK proof (V3, `claim_from_note_pool`) hides which credit note is being redeemed. An observer must break BOTH layers to deanonymize a user.
+
+#### How it works
+
+```
+CREDIT NOTE (from Layer 1):
+  User has a CreditNote PDA from claim_credit.
+  Contains: re-randomized commitment Poseidon(Poseidon(amount, blinding), salt).
+
+DEPOSIT TO POOL (deposit_to_note_pool):
+  User opens the credit note commitment (reveals amount + blinding + salt to the program).
+  Program VERIFIES the opening: Poseidon(Poseidon(amount, blinding), salt) == stored_commitment.
+  Program constructs pool_leaf ON-CHAIN: Poseidon(pool_secret, pool_nullifier, VERIFIED_amount, pool_blinding).
+  Pool leaf inserted into NotePoolTree Merkle tree.
+  Old CreditNote PDA closed. Zero SOL moves.
+
+  KEY SECURITY PROPERTY: The program constructs the leaf using the verified amount.
+  The user cannot lie about the amount. This eliminates the dishonest leaf problem (I-01)
+  that exists in the base DarkDrop layer where create_drop trusts user-provided leaves.
+
+CLAIM FROM POOL (claim_from_note_pool):
+  User generates a V3 Groth16 proof proving:
+    1. They know the preimage of a leaf in the NotePoolTree
+    2. The pool nullifier matches the declared hash
+    3. A new credit note commitment encodes the SAME amount with fresh randomness
+    4. The proof is bound to a specific recipient
+  Program verifies the proof and creates a FRESH CreditNote PDA.
+  Pool nullifier PDA created (prevents double-claim).
+  Zero SOL moves. No amounts visible.
+
+WITHDRAW (withdraw_credit — same as before):
+  User withdraws from the fresh credit note.
+  The fresh commitment is completely unlinkable to the original.
+```
+
+#### What an observer sees
+
+| Step | On-chain footprint | Amount visible? | Linkable to deposit? |
+|------|-------------------|-----------------|---------------------|
+| Deposit (create_drop) | CPI Transfer | Yes | — |
+| Claim (claim_credit) | Proof + PDA creation | No | No (ZK proof hides leaf) |
+| Pool deposit | PDA close + tree insert | No | No (commitment opened privately) |
+| Pool claim | Proof + new PDA creation | No | No (ZK proof hides pool leaf) |
+| Withdraw (withdraw_credit) | Lamport manipulation | Yes (balance delta) | No (double decorrelation) |
+
+#### V3 Circuit (NotePoolClaimProof)
+
+- **File:** `circuits/note_pool.circom`
+- **Constraints:** 6,210
+- **Public inputs:** 4 (`pool_merkle_root`, `pool_nullifier_hash`, `new_stored_commitment`, `recipient_hash`)
+- **Private inputs:** 10 (`pool_secret`, `pool_nullifier`, `amount`, `pool_blinding_factor`, `pool_path[20]`, `pool_indices[20]`, `new_blinding`, `new_salt`, `recipient_hi`, `recipient_lo`)
+- **Proving system:** Groth16 (BN254), same Powers of Tau as V1/V2
+- **WASM:** `circuits/build/note_pool/note_pool_js/note_pool.wasm` (2.5 MB)
+- **Proving key:** `circuits/build/note_pool/note_pool_final.zkey` (5.8 MB)
+
+#### New on-chain state
+
+- **NotePool PDA** `[b"note_pool"]`: bump, total_deposits, total_claims
+- **NotePoolTree PDA** `[b"note_pool_tree", vault]`: Same structure as MerkleTreeAccount (filled_subtrees, root_history, next_index). Depth 20, supports 2^20 pool entries.
+- **PoolNullifierAccount PDA** `[b"pool_nullifier", hash]`: Prevents double-claim from pool. Separate namespace from base nullifiers.
+
+#### New instructions
+
+| Instruction | Accounts | Args | Effect |
+|-------------|----------|------|--------|
+| `initialize_note_pool` | vault, note_pool, note_pool_tree, authority, system_program | none | Creates NotePool + NotePoolTree PDAs. Authority only. |
+| `deposit_to_note_pool` | vault, note_pool, note_pool_tree, credit_note, recipient, payer, system_program | nullifier_hash, opening (72 bytes), pool_params (96 bytes) | Opens credit note, constructs pool leaf with verified amount, inserts into pool tree, closes credit note. |
+| `claim_from_note_pool` | vault, note_pool, note_pool_tree, credit_note, pool_nullifier, recipient, payer, system_program | pool_nullifier_hash, proof (ProofData), inputs (64 bytes) | Verifies V3 proof, creates fresh CreditNote PDA, creates pool nullifier PDA. |
 
 ---
 
@@ -227,6 +298,20 @@ Blueprint Phase 8 item. ~0.2 SOL stuck in legacy sol_vault PDA. Additional small
 - **Proving key:** `circuits/build/darkdrop_v2_final.zkey` (5.4 MB)
 - **Verification key:** `circuits/build/verification_key_v2.json`
 - **Circuit test results:** 11/11 passing
+
+### V3 circuit (note pool)
+
+- **File:** `circuits/note_pool.circom`
+- **Constraints:** 6,210
+- **Public inputs:** 4 (pool_merkle_root, pool_nullifier_hash, new_stored_commitment, recipient_hash)
+- **Private inputs:** pool_secret, pool_nullifier, amount, pool_blinding_factor, pool_path[20], pool_indices[20], new_blinding, new_salt, recipient_hi, recipient_lo
+- **Merkle depth:** 20 (supports 2^20 = 1,048,576 pool entries)
+- **Hash function:** Poseidon (Poseidon(4) for pool leaf, Poseidon(2) for Merkle/commitments)
+- **Proving system:** Groth16 (BN254)
+- **Trusted setup:** Powers of Tau (pot14), circuit-specific phase 2
+- **WASM:** `circuits/build/note_pool/note_pool_js/note_pool.wasm` (2.5 MB)
+- **Proving key:** `circuits/build/note_pool/note_pool_final.zkey` (5.8 MB)
+- **Verification key:** `circuits/build/note_pool/verification_key_note_pool.json`
 
 ---
 
@@ -544,20 +629,24 @@ withdraw_credit: [8, 173, 134, 129, 40, 255, 134, 30]
 
 | File | Purpose |
 |------|---------|
-| `program/programs/darkdrop/src/lib.rs` | Entry point, 6 instruction routing |
-| `program/programs/darkdrop/src/state.rs` | Vault, Treasury, CreditNote, MerkleTreeAccount, NullifierAccount, ProofData |
+| `program/programs/darkdrop/src/lib.rs` | Entry point, 10 instruction routing |
+| `program/programs/darkdrop/src/state.rs` | Vault, Treasury, CreditNote, MerkleTreeAccount, NullifierAccount, NotePool, NotePoolTree, PoolNullifierAccount, ProofData |
 | `program/programs/darkdrop/src/instructions/initialize.rs` | initialize_vault (creates vault + merkle_tree + treasury) |
 | `program/programs/darkdrop/src/instructions/create_drop.rs` | create_drop (CPI to treasury) |
 | `program/programs/darkdrop/src/instructions/claim.rs` | Legacy claim (V1 VK, direct lamport manipulation) |
 | `program/programs/darkdrop/src/instructions/claim_credit.rs` | claim_credit (V2 VK, zero SOL movement) |
 | `program/programs/darkdrop/src/instructions/withdraw_credit.rs` | withdraw_credit (Poseidon verification, direct lamport manipulation) |
 | `program/programs/darkdrop/src/instructions/create_treasury.rs` | One-time migration |
+| `program/programs/darkdrop/src/instructions/admin_sweep.rs` | admin_sweep (treasury sweep with obligation tracking) |
+| `program/programs/darkdrop/src/instructions/initialize_note_pool.rs` | initialize_note_pool (creates pool + pool tree) |
+| `program/programs/darkdrop/src/instructions/deposit_to_note_pool.rs` | deposit_to_note_pool (opens credit note, constructs pool leaf) |
+| `program/programs/darkdrop/src/instructions/claim_from_note_pool.rs` | claim_from_note_pool (V3 proof, fresh credit note) |
 | `program/programs/darkdrop/src/errors.rs` | DarkDropError enum (12 variants) |
-| `program/programs/darkdrop/src/verifier.rs` | verify_proof (V1) + verify_proof_v2 (V2) |
-| `program/programs/darkdrop/src/vk.rs` | Dual VK: verifying_key_v1() + verifying_key_v2() |
-| `program/programs/darkdrop/src/poseidon.rs` | On-chain Poseidon hash (light-hasher) |
-| `program/programs/darkdrop/src/merkle_tree.rs` | Merkle tree append logic |
-| `program/target/idl/darkdrop.json` | Hand-written IDL v0.2.0 (obfuscated names) |
+| `program/programs/darkdrop/src/verifier.rs` | verify_proof (V1) + verify_proof_v2 (V2) + verify_proof_v3 (V3) |
+| `program/programs/darkdrop/src/vk.rs` | Triple VK: verifying_key_v1() + verifying_key_v2() + verifying_key_v3() |
+| `program/programs/darkdrop/src/poseidon.rs` | On-chain Poseidon hash (light-hasher, 2-input + 4-input) |
+| `program/programs/darkdrop/src/merkle_tree.rs` | Merkle tree append (main tree + note pool tree) |
+| `program/idl/darkdrop.json` | Hand-written IDL v0.3.0 (obfuscated names) |
 | `program/target/deploy/darkdrop.so` | Compiled program binary (451 KB) |
 
 ### Circuits
@@ -565,11 +654,15 @@ withdraw_credit: [8, 173, 134, 129, 40, 255, 134, 30]
 | File | Purpose |
 |------|---------|
 | `circuits/darkdrop.circom` | V2 claim circuit (amount private) |
+| `circuits/note_pool.circom` | V3 note pool circuit (recursive privacy) |
 | `circuits/build/darkdrop_js/darkdrop.wasm` | WASM prover (2.5 MB, shared V1/V2) |
 | `circuits/build/darkdrop_final.zkey` | V1 proving key (5.4 MB) |
 | `circuits/build/darkdrop_v2_final.zkey` | V2 proving key (5.4 MB) |
 | `circuits/build/verification_key.json` | V1 verification key |
 | `circuits/build/verification_key_v2.json` | V2 verification key |
+| `circuits/build/note_pool/note_pool_js/note_pool.wasm` | V3 WASM prover (2.5 MB) |
+| `circuits/build/note_pool/note_pool_final.zkey` | V3 proving key (5.8 MB) |
+| `circuits/build/note_pool/verification_key_note_pool.json` | V3 verification key |
 
 ### Scripts
 
@@ -580,6 +673,8 @@ withdraw_credit: [8, 173, 134, 129, 40, 255, 134, 30]
 | `scripts/security-tests.js` | 6 legacy security tests |
 | `scripts/security-credit-tests.js` | 7 credit note security tests |
 | `scripts/relayer-test.js` | Relayer gasless claim E2E test |
+| `scripts/note-pool-test.js` | Note pool E2E test (recursive privacy flow) |
+| `scripts/note-pool-security-tests.js` | 4 note pool security tests |
 | `scripts/export_vk_rust.js` | Convert verification_key.json to Rust constants |
 
 ### Relayer
@@ -612,7 +707,7 @@ IDL is hand-written with obfuscated field names. After changes:
 
 ```bash
 anchor idl upgrade GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU \
-  --filepath target/idl/darkdrop.json \
+  --filepath idl/darkdrop.json \
   --provider.cluster devnet \
   --provider.wallet ~/.config/solana/id.json
 ```
@@ -660,6 +755,9 @@ anchor idl upgrade GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU \
 - Double-spend prevention via **nullifier PDAs**
 - ZK proof correctness verified on-chain via **Groth16 on BN254**
 - Commitment binding via **Poseidon hash** (computationally hiding + binding)
+- Commitment re-randomization via **salt** (on-chain commitments cannot be matched to deposit data)
+- **Recursive privacy** via Note Pool (second-layer Merkle mixer for credit notes)
+- **Dishonest leaf elimination** at pool layer (program constructs pool leaves with verified amounts)
 
 ---
 
