@@ -75,6 +75,9 @@ pub fn handle_claim(
     vault.total_claims = vault.total_claims
         .checked_add(1)
         .ok_or(DarkDropError::Overflow)?;
+    vault.total_withdrawn = vault.total_withdrawn
+        .checked_add(amount)
+        .ok_or(DarkDropError::Overflow)?;
 
     // Store nullifier hash in the nullifier account
     let nullifier_account = &mut ctx.accounts.nullifier_account;

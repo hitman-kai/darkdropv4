@@ -92,6 +92,12 @@ pub fn handle_withdraw_credit(
         **ctx.accounts.fee_recipient.to_account_info().try_borrow_mut_lamports()? += fee;
     }
 
+    // Track total withdrawn for sweep limit enforcement
+    let vault = &mut ctx.accounts.vault;
+    vault.total_withdrawn = vault.total_withdrawn
+        .checked_add(amount)
+        .ok_or(DarkDropError::Overflow)?;
+
     emit!(CreditWithdrawn {
         nullifier_hash: credit.nullifier_hash,
         recipient: credit.recipient,
@@ -113,7 +119,7 @@ fn u64_to_field_be(val: u64) -> [u8; 32] {
 #[derive(Accounts)]
 #[instruction(nullifier_hash: [u8; 32])]
 pub struct WithdrawCredit<'info> {
-    #[account(seeds = [b"vault"], bump = vault.bump)]
+    #[account(mut, seeds = [b"vault"], bump = vault.bump)]
     pub vault: Account<'info, Vault>,
 
     /// Program-owned treasury — direct lamport manipulation

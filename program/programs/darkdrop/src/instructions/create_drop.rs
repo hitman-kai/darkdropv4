@@ -13,8 +13,8 @@ pub fn handle_create_drop(
     ctx: Context<CreateDrop>,
     leaf: [u8; 32],
     amount: u64,
-    amount_commitment: [u8; 32],
-    password_hash: [u8; 32],
+    _amount_commitment: [u8; 32],
+    _password_hash: [u8; 32],
 ) -> Result<()> {
     // Validate amount
     require!(amount > 0, DarkDropError::ZeroAmount);
@@ -47,13 +47,16 @@ pub fn handle_create_drop(
     vault.total_drops = vault.total_drops
         .checked_add(1)
         .ok_or(DarkDropError::Overflow)?;
+    vault.total_deposited = vault.total_deposited
+        .checked_add(amount)
+        .ok_or(DarkDropError::Overflow)?;
 
-    // Emit event for client indexing
+    // Emit event for client indexing.
+    // amount_commitment and password_hash deliberately omitted to prevent
+    // deposit→claim linkage and password brute-forcing (M-03-NEW fix).
     emit!(DropCreated {
         leaf_index,
         leaf,
-        amount_commitment,
-        password_hash,
         merkle_root: tree.current_root,
         timestamp: Clock::get()?.unix_timestamp,
     });
@@ -97,8 +100,6 @@ pub struct CreateDrop<'info> {
 pub struct DropCreated {
     pub leaf_index: u32,
     pub leaf: [u8; 32],
-    pub amount_commitment: [u8; 32],
-    pub password_hash: [u8; 32],
     pub merkle_root: [u8; 32],
     pub timestamp: i64,
 }

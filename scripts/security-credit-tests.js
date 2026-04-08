@@ -138,7 +138,7 @@ function buildWithdrawCreditIx({ vault, treasury, creditNotePDA, recipient, feeR
   return new TransactionInstruction({
     programId: PROGRAM_ID,
     keys: [
-      { pubkey: vault, isSigner: false, isWritable: false },
+      { pubkey: vault, isSigner: false, isWritable: true },
       { pubkey: treasury, isSigner: false, isWritable: true },
       { pubkey: creditNotePDA, isSigner: false, isWritable: true },
       { pubkey: recipient, isSigner: false, isWritable: true },

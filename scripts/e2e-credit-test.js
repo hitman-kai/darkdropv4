@@ -420,7 +420,7 @@ async function main() {
   const withdrawIx = new TransactionInstruction({
     programId: PROGRAM_ID,
     keys: [
-      { pubkey: vault, isSigner: false, isWritable: false },
+      { pubkey: vault, isSigner: false, isWritable: true },
       { pubkey: treasury, isSigner: false, isWritable: true },
       { pubkey: creditNotePDA, isSigner: false, isWritable: true },
       { pubkey: recipient.publicKey, isSigner: false, isWritable: true },

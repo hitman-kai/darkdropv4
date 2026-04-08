@@ -58,6 +58,10 @@ pub struct Vault {
     pub drop_cap: u64,
     /// Associated Merkle tree account
     pub merkle_tree: Pubkey,
+    /// Total lamports deposited via create_drop (for sweep limit enforcement)
+    pub total_deposited: u64,
+    /// Total lamports withdrawn via claim + withdraw_credit (for sweep limit enforcement)
+    pub total_withdrawn: u64,
 }
 
 impl Vault {
@@ -67,7 +71,9 @@ impl Vault {
         + 8   // total_drops
         + 8   // total_claims
         + 8   // drop_cap
-        + 32; // merkle_tree
+        + 32  // merkle_tree
+        + 8   // total_deposited
+        + 8;  // total_withdrawn
 }
 
 /// MerkleTree — stores the incremental Merkle tree state.

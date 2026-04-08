@@ -137,7 +137,7 @@ function buildWithdrawCredit(nhb, amount, blindingFactor, recipient, feeRecipien
   const ol = Buffer.alloc(4); ol.writeUInt32LE(40);
   const rb = Buffer.alloc(2); rb.writeUInt16LE(0);
   return new TransactionInstruction({ programId: PROGRAM_ID, keys: [
-    { pubkey: vault, isSigner: false, isWritable: false },
+    { pubkey: vault, isSigner: false, isWritable: true },
     { pubkey: treasury, isSigner: false, isWritable: true },
     { pubkey: cPDA(nhb), isSigner: false, isWritable: true },
     { pubkey: recipient, isSigner: false, isWritable: true },

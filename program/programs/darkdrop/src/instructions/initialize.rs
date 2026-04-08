@@ -12,6 +12,8 @@ pub fn handle_initialize_vault(ctx: Context<InitializeVault>, drop_cap: u64) -> 
     vault.total_claims = 0;
     vault.drop_cap = drop_cap;
     vault.merkle_tree = ctx.accounts.merkle_tree.key();
+    vault.total_deposited = 0;
+    vault.total_withdrawn = 0;
 
     // Initialize treasury
     let treasury = &mut ctx.accounts.treasury;

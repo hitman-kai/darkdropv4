@@ -90,7 +90,7 @@ function getMerkleTreePDA(vault) {
   return PublicKey.findProgramAddressSync([Buffer.from("merkle_tree"), vault.toBytes()], PROGRAM_ID);
 }
 function getSolVaultPDA() {
-  return PublicKey.findProgramAddressSync([Buffer.from("sol_vault")], PROGRAM_ID);
+  return PublicKey.findProgramAddressSync([Buffer.from("treasury")], PROGRAM_ID);
 }
 function getNullifierPDA(nullifierHash) {
   return PublicKey.findProgramAddressSync([Buffer.from("nullifier"), nullifierHash], PROGRAM_ID);
