@@ -6,6 +6,9 @@ pub mod withdraw_credit;
 pub mod create_treasury;
 pub mod admin_sweep;
 pub mod migrate_vault;
+pub mod initialize_note_pool;
+pub mod deposit_to_note_pool;
+pub mod claim_from_note_pool;
 
 pub use initialize::*;
 pub use create_drop::*;
@@ -15,3 +18,6 @@ pub use withdraw_credit::*;
 pub use create_treasury::*;
 pub use admin_sweep::*;
 pub use migrate_vault::*;
+pub use initialize_note_pool::*;
+pub use deposit_to_note_pool::*;
+pub use claim_from_note_pool::*;

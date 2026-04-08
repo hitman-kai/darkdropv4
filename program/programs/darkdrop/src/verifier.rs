@@ -66,3 +66,33 @@ pub fn verify_proof_v2(
 
     Ok(())
 }
+
+/// Verify a Groth16 proof against the V3 verification key (4 public inputs).
+/// Used by `claim_from_note_pool` — note pool circuit.
+///
+/// Public inputs order (V3):
+///   [0] pool_merkle_root
+///   [1] pool_nullifier_hash
+///   [2] new_stored_commitment
+///   [3] recipient_hash
+pub fn verify_proof_v3(
+    proof: &ProofData,
+    public_inputs: &[[u8; 32]; 4],
+) -> Result<()> {
+    let vk = vk::verifying_key_v3();
+
+    let mut verifier = Groth16Verifier::new(
+        &proof.proof_a,
+        &proof.proof_b,
+        &proof.proof_c,
+        public_inputs,
+        &vk,
+    )
+    .map_err(|_| DarkDropError::InvalidProof)?;
+
+    verifier
+        .verify()
+        .map_err(|_| DarkDropError::InvalidProof)?;
+
+    Ok(())
+}

@@ -90,4 +90,38 @@ pub mod darkdrop {
     pub fn migrate_vault(ctx: Context<MigrateVault>) -> Result<()> {
         instructions::migrate_vault::handle_migrate_vault(ctx)
     }
+
+    /// Initialize the Note Pool — second-layer Merkle tree for credit note mixing.
+    /// Only callable by vault authority.
+    pub fn initialize_note_pool(ctx: Context<InitializeNotePool>) -> Result<()> {
+        instructions::initialize_note_pool::handle_initialize_note_pool(ctx)
+    }
+
+    /// Deposit a credit note into the note pool for second-layer mixing.
+    /// Opens the credit note commitment, constructs a pool leaf with VERIFIED amount.
+    /// Zero SOL moves. The credit note PDA is closed.
+    pub fn deposit_to_note_pool(
+        ctx: Context<DepositToNotePool>,
+        nullifier_hash: [u8; 32],
+        opening: Vec<u8>,
+        pool_params: Vec<u8>,
+    ) -> Result<()> {
+        instructions::deposit_to_note_pool::handle_deposit_to_note_pool(
+            ctx, nullifier_hash, opening, pool_params,
+        )
+    }
+
+    /// Claim a fresh credit note from the note pool.
+    /// Verifies Groth16 proof (V3 circuit), creates a fresh CreditNote PDA.
+    /// Zero SOL moves. No amounts visible. Second layer of recursive privacy.
+    pub fn claim_from_note_pool(
+        ctx: Context<ClaimFromNotePool>,
+        pool_nullifier_hash: [u8; 32],
+        proof: ProofData,
+        inputs: Vec<u8>,
+    ) -> Result<()> {
+        instructions::claim_from_note_pool::handle_claim_from_note_pool(
+            ctx, pool_nullifier_hash, proof, inputs,
+        )
+    }
 }

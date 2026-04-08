@@ -169,6 +169,71 @@ impl CreditNote {
         + 8;   // created_at
 }
 
+/// NotePoolTree — stores the second-layer Merkle tree for credit note mixing.
+/// PDA seeds: [b"note_pool_tree", vault.key()]
+///
+/// Same incremental Merkle tree algorithm as MerkleTreeAccount.
+/// Leaves are program-constructed: Poseidon(pool_secret, pool_nullifier, verified_amount, pool_blinding).
+/// The verified_amount comes from opening the credit note commitment on-chain,
+/// which eliminates the dishonest leaf problem from base DarkDrop (I-01 fix).
+#[account(zero_copy(unsafe))]
+#[repr(C)]
+#[derive(Debug)]
+pub struct NotePoolTree {
+    /// Associated vault
+    pub vault: Pubkey,
+    /// Next available leaf index
+    pub next_index: u32,
+    /// Index into root_history circular buffer
+    pub root_history_index: u32,
+    /// Current Merkle root
+    pub current_root: [u8; 32],
+    /// Circular buffer of recent roots
+    pub root_history: [[u8; 32]; ROOT_HISTORY_SIZE],
+    /// Filled subtrees at each level (for incremental insertion)
+    pub filled_subtrees: [[u8; 32]; MERKLE_DEPTH],
+}
+
+impl NotePoolTree {
+    /// Check if a root exists in the history
+    pub fn is_known_root(&self, root: &[u8; 32]) -> bool {
+        if *root == self.current_root {
+            return true;
+        }
+        for i in 0..ROOT_HISTORY_SIZE {
+            if self.root_history[i] == *root {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// PoolNullifierAccount — PDA created per spent note pool nullifier.
+/// PDA seeds: [b"pool_nullifier", pool_nullifier_hash.as_ref()]
+/// Prevents double-claiming from the note pool.
+#[account]
+pub struct PoolNullifierAccount {
+    pub nullifier_hash: [u8; 32],
+}
+
+impl PoolNullifierAccount {
+    pub const SIZE: usize = 8 + 32;
+}
+
+/// NotePool — configuration account for the note pool.
+/// PDA seeds: [b"note_pool"]
+#[account]
+pub struct NotePool {
+    pub bump: u8,
+    pub total_deposits: u64,
+    pub total_claims: u64,
+}
+
+impl NotePool {
+    pub const SIZE: usize = 8 + 1 + 8 + 8;
+}
+
 /// Groth16 proof data submitted by the claimer
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct ProofData {

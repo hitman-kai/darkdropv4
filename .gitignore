@@ -64,3 +64,6 @@ frontend/README.md
 .claude/
 CLAUDE.md
 AGENTS.md
+circuits/build/note_pool/note_pool_0000.zkey
+circuits/build/note_pool/note_pool.r1cs
+circuits/build/note_pool/note_pool.sym
