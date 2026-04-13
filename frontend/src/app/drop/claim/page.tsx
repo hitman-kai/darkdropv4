@@ -291,7 +291,7 @@ export default function ClaimPage() {
         withdrawData.set(WITHDRAW_CREDIT_DISCRIMINATOR, off); off += 8;
         withdrawData.set(nullifierHashBytes, off); off += 32;
         withdrawData.set(openingLenBuf, off); off += 4;
-        withdrawData.set(openingBuf, off); off += 40;
+        withdrawData.set(openingBuf, off); off += 72;
         withdrawData.set(rateBuf, off);
 
         const withdrawIx = new TransactionInstruction({
