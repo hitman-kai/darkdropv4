@@ -66,7 +66,12 @@ pub fn handle_claim_from_note_pool(
     credit.recipient = ctx.accounts.recipient.key();
     credit.commitment = new_stored_commitment;
     credit.nullifier_hash = pool_nullifier_hash;
-    credit.salt = [0u8; 32]; // salt is baked into new_stored_commitment by the circuit
+    // Derive a pseudorandom salt from the pool nullifier hash so this field
+    // is indistinguishable from claim_credit's random salt (prevents observers
+    // from identifying note-pool-origin credit notes by seeing all-zero salt).
+    // This value is never used for commitment verification — the actual salt
+    // is baked into new_stored_commitment by the circuit.
+    credit.salt = poseidon_hash(&pool_nullifier_hash, &new_stored_commitment);
     credit.created_at = Clock::get()?.unix_timestamp;
 
     // Store pool nullifier (double-claim prevention)

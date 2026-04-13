@@ -22,7 +22,7 @@ import {
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import { config } from "../config";
-import { verifyClaimProofV2, pubkeyToField, bytes32ToBigInt } from "../verify";
+import { verifyClaimProofV2, verifyCommitmentOpening, pubkeyToField, bytes32ToBigInt } from "../verify";
 
 const router = Router();
 
@@ -202,6 +202,22 @@ router.post("/withdraw", async (req: Request, res: Response) => {
     const creditNoteInfo = await connection.getAccountInfo(creditNotePDA);
     if (!creditNoteInfo) {
       return res.status(404).json({ error: "Credit note not found" });
+    }
+
+    // Off-chain commitment verification — reject bad openings before spending gas
+    // CreditNote layout: 8(disc) + 1(bump) + 32(recipient) + 32(commitment) + 32(nullifier) + 32(salt) + 8(created)
+    const cnData = creditNoteInfo.data;
+    const storedCommitment = cnData.slice(41, 73);  // offset 8+1+32 = 41
+
+    const openingAmount = Buffer.from(body.opening.slice(0, 8)).readBigUInt64LE(0);
+    const openingBlinding = new Uint8Array(body.opening.slice(8, 40));
+    const openingSalt = new Uint8Array(body.opening.slice(40, 72));
+
+    const commitmentValid = await verifyCommitmentOpening(
+      storedCommitment, openingAmount, openingBlinding, openingSalt,
+    );
+    if (!commitmentValid) {
+      return res.status(400).json({ error: "Invalid commitment opening" });
     }
 
     // Rate in basis points (relayer fee)

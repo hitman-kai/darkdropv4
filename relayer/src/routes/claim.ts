@@ -92,7 +92,12 @@ router.post("/", async (req: Request, res: Response) => {
     if (body.proof.proofB.length !== 128) return res.status(400).json({ error: "proofB must be 128 bytes" });
     if (body.proof.proofC.length !== 64) return res.status(400).json({ error: "proofC must be 64 bytes" });
 
-    const amount = BigInt(body.amount);
+    let amount: bigint;
+    try {
+      amount = BigInt(body.amount);
+    } catch {
+      return res.status(400).json({ error: "Invalid amount" });
+    }
     if (amount <= 0n) return res.status(400).json({ error: "Amount must be > 0" });
     if (amount > config.maxClaimAmount) return res.status(400).json({ error: "Amount exceeds relay limit" });
 

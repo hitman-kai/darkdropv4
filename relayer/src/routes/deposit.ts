@@ -25,6 +25,7 @@ import {
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import { config } from "../config";
+import { hasProcessedTx, markProcessed, unmarkProcessed } from "../processed-txs";
 
 const router = Router();
 
@@ -47,9 +48,6 @@ function getTreasuryPDA(): PublicKey {
 
 const CREATE_DROP_DISCRIMINATOR = Buffer.from([157, 142, 145, 247, 92, 73, 59, 48]);
 
-// Track processed deposit TX signatures to prevent replay attacks
-const processedDepositTxs = new Set<string>();
-
 interface DepositRelayRequest {
   leaf: number[];           // 32 bytes
   amount: string;           // lamports as string
@@ -71,12 +69,17 @@ router.post("/", async (req: Request, res: Response) => {
     if (body.commitment.length !== 32) return res.status(400).json({ error: "commitment must be 32 bytes" });
     if (body.seed.length !== 32) return res.status(400).json({ error: "seed must be 32 bytes" });
 
-    const amount = BigInt(body.amount);
+    let amount: bigint;
+    try {
+      amount = BigInt(body.amount);
+    } catch {
+      return res.status(400).json({ error: "Invalid amount" });
+    }
     if (amount <= 0n) return res.status(400).json({ error: "Amount must be > 0" });
     if (amount > config.maxClaimAmount) return res.status(400).json({ error: "Amount exceeds relay limit" });
 
-    // C-01 FIX: Reject replayed deposit TX signatures
-    if (processedDepositTxs.has(body.depositTx)) {
+    // C-01 FIX: Reject replayed deposit TX signatures (persistent across restarts)
+    if (hasProcessedTx(body.depositTx)) {
       return res.status(409).json({ error: "Deposit TX already processed" });
     }
 
@@ -114,7 +117,7 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     // Mark TX as processed BEFORE submitting on-chain (prevent concurrent replays)
-    processedDepositTxs.add(body.depositTx);
+    markProcessed(body.depositTx);
 
     // Build create_drop instruction with relayer as sender
     const vault = getVaultPDA();
@@ -154,7 +157,7 @@ router.post("/", async (req: Request, res: Response) => {
       });
     } catch (err) {
       // On-chain TX failed — remove from processed set so user can retry
-      processedDepositTxs.delete(body.depositTx);
+      unmarkProcessed(body.depositTx);
       throw err;
     }
 

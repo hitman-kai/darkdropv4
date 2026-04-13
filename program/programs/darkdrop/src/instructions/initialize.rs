@@ -1,9 +1,13 @@
 use anchor_lang::prelude::*;
 use crate::state::*;
+use crate::errors::DarkDropError;
 
 /// Initialize the DarkDrop vault, Merkle tree, and program-owned treasury.
 /// Called once to set up the program.
 pub fn handle_initialize_vault(ctx: Context<InitializeVault>, drop_cap: u64) -> Result<()> {
+    require!(drop_cap >= MIN_DEPOSIT_LAMPORTS, DarkDropError::ZeroAmount);
+    require!(drop_cap <= MAX_DROP_AMOUNT, DarkDropError::AmountExceedsCap);
+
     // Initialize vault
     let vault = &mut ctx.accounts.vault;
     vault.bump = ctx.bumps.vault;

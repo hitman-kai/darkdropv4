@@ -21,8 +21,8 @@ export const config = {
   // Relay fee: percentage of claim amount (basis points, 100 = 1%, max 500 = 5%)
   feeRateBps,
 
-  // Allowed frontend origin for CORS (set to your domain in production)
-  corsOrigin: process.env.CORS_ORIGIN || "*",
+  // Allowed frontend origin for CORS (CORS_ORIGIN must be set in production)
+  corsOrigin: process.env.CORS_ORIGIN || "http://localhost:3000",
 
   // Server port
   port: parseInt(process.env.PORT || "3001"),

@@ -26,32 +26,32 @@ pub fn handle_migrate_vault(ctx: Context<MigrateVault>) -> Result<()> {
     let old_len = vault_data.len();
     drop(vault_data);
 
-    // Realloc to new size if needed
-    if old_len < Vault::SIZE {
-        let rent = Rent::get()?;
-        let new_min = rent.minimum_balance(Vault::SIZE);
-        let old_min = rent.minimum_balance(old_len);
-        let lamports_needed = new_min.saturating_sub(old_min);
+    // Already migrated — reject to prevent counter reset
+    require!(old_len < Vault::SIZE, DarkDropError::AlreadyMigrated);
 
-        if lamports_needed > 0 {
-            // Transfer additional rent from authority
-            anchor_lang::system_program::transfer(
-                CpiContext::new(
-                    ctx.accounts.system_program.to_account_info(),
-                    anchor_lang::system_program::Transfer {
-                        from: authority.to_account_info(),
-                        to: vault_info.to_account_info(),
-                    },
-                ),
-                lamports_needed,
-            )?;
-        }
+    // Realloc to new size
+    let rent = Rent::get()?;
+    let new_min = rent.minimum_balance(Vault::SIZE);
+    let old_min = rent.minimum_balance(old_len);
+    let lamports_needed = new_min.saturating_sub(old_min);
 
-        vault_info.realloc(Vault::SIZE, false)?;
+    if lamports_needed > 0 {
+        // Transfer additional rent from authority
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                anchor_lang::system_program::Transfer {
+                    from: authority.to_account_info(),
+                    to: vault_info.to_account_info(),
+                },
+            ),
+            lamports_needed,
+        )?;
     }
 
-    // Write the new fields at the end of the old data
-    // total_deposited at offset old_size, total_withdrawn at old_size + 8
+    vault_info.realloc(Vault::SIZE, false)?;
+
+    // Write the new fields (only reached on first migration)
     let mut vault_data = vault_info.try_borrow_mut_data()?;
     let td_offset = Vault::SIZE - 16; // total_deposited
     let tw_offset = Vault::SIZE - 8;  // total_withdrawn

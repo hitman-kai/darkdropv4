@@ -40,4 +40,7 @@ pub enum DarkDropError {
 
     #[msg("Amount below minimum deposit")]
     BelowMinDeposit,
+
+    #[msg("Vault already migrated")]
+    AlreadyMigrated,
 }

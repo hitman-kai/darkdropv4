@@ -123,6 +123,46 @@ export async function verifyClaimProofV1(
  * Public inputs order (from circuit + on-chain claim_credit.rs):
  *   [merkle_root, nullifier_hash, recipient_hash, amount_commitment, password_hash]
  */
+/**
+ * Verify a credit note commitment opening off-chain.
+ * Recomputes: Poseidon(Poseidon(amount_BE, blinding), salt) and compares
+ * against the stored commitment from the CreditNote PDA.
+ *
+ * @param storedCommitment - 32 bytes from on-chain CreditNote.commitment
+ * @param amount - u64 amount in lamports
+ * @param blindingFactor - 32 bytes
+ * @param salt - 32 bytes
+ * @returns true if the opening matches the stored commitment
+ */
+export async function verifyCommitmentOpening(
+  storedCommitment: Uint8Array,
+  amount: bigint,
+  blindingFactor: Uint8Array,
+  salt: Uint8Array,
+): Promise<boolean> {
+  const poseidon = await getPoseidon();
+
+  // amount as big-endian 32-byte field element (matches on-chain u64_to_field_be)
+  const amountHex = amount.toString(16).padStart(64, "0");
+  const amountBigInt = BigInt("0x" + amountHex);
+
+  const blindingBigInt = bytesToBigIntBE(blindingFactor);
+  const saltBigInt = bytesToBigIntBE(salt);
+
+  // original = Poseidon(amount, blinding)
+  const original = poseidon([amountBigInt, blindingBigInt]);
+  const originalField = poseidon.F.toObject(original);
+
+  // stored = Poseidon(original, salt)
+  const computed = poseidon([originalField, saltBigInt]);
+  const computedField = poseidon.F.toObject(computed);
+
+  // Compare against stored commitment (big-endian bytes)
+  const storedBigInt = bytesToBigIntBE(storedCommitment);
+
+  return computedField === storedBigInt;
+}
+
 export async function verifyClaimProofV2(
   proofA: number[],
   proofB: number[],
