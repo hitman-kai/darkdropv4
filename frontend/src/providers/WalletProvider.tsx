@@ -16,7 +16,10 @@ export default function WalletProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const endpoint = useMemo(() => clusterApiUrl("devnet"), []);
+  const endpoint = useMemo(
+    () => process.env.NEXT_PUBLIC_RPC_URL || clusterApiUrl("devnet"),
+    []
+  );
   const wallets = useMemo(
     () => [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
     []
