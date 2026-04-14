@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Fira_Code } from "next/font/google";
 import "./globals.css";
 import WalletProvider from "@/providers/WalletProvider";
-import { MatrixBackground } from "@/components/MatrixBackground";
+import { DotBackground } from "@/components/DotBackground";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
@@ -30,7 +30,7 @@ export default function RootLayout({
       <body className={`${fira.variable} antialiased`}>
         <WalletProvider>
           <div className="relative min-h-screen bg-[color:var(--background)] text-[color:var(--text)]">
-            <MatrixBackground />
+            <DotBackground />
             <Navbar />
             <main className="relative z-10 min-h-screen pb-16">{children}</main>
             <Footer />
