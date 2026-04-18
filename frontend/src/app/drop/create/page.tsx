@@ -67,6 +67,7 @@ export default function CreateDropPage() {
 
     setStage("confirming");
     setError("");
+    window.dispatchEvent(new CustomEvent('darkdrop-processing-create', { detail: { active: true } }));
 
     try {
       const lamports = BigInt(Math.round(solAmount * 1e9));
@@ -183,10 +184,12 @@ export default function CreateDropPage() {
       setClaimCode(code);
       setTxSig(sig);
       setStage("done");
+      window.dispatchEvent(new CustomEvent('darkdrop-processing-create', { detail: { active: false } }));
     } catch (err: any) {
       console.error("Create drop failed:", err.message);
       setError(err.message || "Transaction failed");
       setStage("error");
+      window.dispatchEvent(new CustomEvent('darkdrop-processing-create', { detail: { active: false } }));
     }
   };
 

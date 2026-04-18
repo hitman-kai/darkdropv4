@@ -4,6 +4,8 @@ import "./globals.css";
 import WalletProvider from "@/providers/WalletProvider";
 import { DotBackground } from "@/components/DotBackground";
 import RetroScrollbar from "@/components/RetroScrollbar";
+import SnakeBackground from "@/components/SnakeBackground";
+import ClaimBackground from "@/components/ClaimBackground";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
@@ -33,6 +35,8 @@ export default function RootLayout({
         <WalletProvider>
           <div className="relative min-h-screen bg-[color:var(--background)] text-[color:var(--text)]">
             <DotBackground />
+            <SnakeBackground />
+            <ClaimBackground />
             <RetroScrollbar />
             <Navbar />
             <main className="relative z-10 min-h-screen pb-16">{children}</main>
