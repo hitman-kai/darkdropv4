@@ -89,6 +89,7 @@ export default function ClaimPage() {
     }
 
     setError("");
+    window.dispatchEvent(new CustomEvent('darkdrop-processing-claim', { detail: { active: true } }));
 
     try {
       // Step 1: Decode claim code
@@ -319,10 +320,12 @@ export default function ClaimPage() {
       }
 
       setStage("done");
+      window.dispatchEvent(new CustomEvent('darkdrop-processing-claim', { detail: { active: false } }));
     } catch (err: any) {
       console.error("Claim failed:", err.message);
       setError(err.message || "Claim failed");
       setStage("error");
+      window.dispatchEvent(new CustomEvent('darkdrop-processing-claim', { detail: { active: false } }));
     }
   };
 
