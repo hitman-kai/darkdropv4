@@ -10,6 +10,7 @@ pub mod initialize_note_pool;
 pub mod deposit_to_note_pool;
 pub mod claim_from_note_pool;
 pub mod revoke_drop;
+pub mod close_receipt;
 
 pub use initialize::*;
 pub use create_drop::*;
@@ -23,3 +24,4 @@ pub use initialize_note_pool::*;
 pub use deposit_to_note_pool::*;
 pub use claim_from_note_pool::*;
 pub use revoke_drop::*;
+pub use close_receipt::*;

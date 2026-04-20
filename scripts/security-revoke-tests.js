@@ -171,6 +171,20 @@ async function createDropWithReceipt(depositor, amount) {
   };
 }
 
+function buildCloseReceiptIx({ leafBytes, receipt, depositorKey }) {
+  return new TransactionInstruction({
+    programId: PROGRAM_ID,
+    keys: [
+      { pubkey: receipt, isSigner: false, isWritable: true },
+      { pubkey: depositorKey, isSigner: true, isWritable: true },
+    ],
+    data: Buffer.concat([
+      getDiscriminator("close_receipt"),
+      leafBytes,
+    ]),
+  });
+}
+
 function buildRevokeIx({ leafBytes, nullifierHashBytes, secret, nullifier, blinding, receipt, depositorKey }) {
   const [nullifierPDA] = getNullifierPDA(nullifierHashBytes);
   const preimage = Buffer.concat([
@@ -517,11 +531,163 @@ async function main() {
     record(await expectFail("F", build, /CommitmentMismatch|0x17d9|6009/));
   }
 
+  // ============================================================
+  // TEST G: close_receipt by non-depositor → InvalidDepositReceipt
+  //   Attacker signs close_receipt with a valid leaf whose receipt exists,
+  //   but attacker is not the receipt's recorded depositor.
+  //   Anchor's `close = depositor` only routes lamports to the signer's
+  //   wallet; it does NOT check signer == receipt.depositor. The explicit
+  //   require_keys_eq! in the handler is what blocks this.
+  // ============================================================
+  console.log("\n[G] close_receipt by non-depositor → InvalidDepositReceipt");
+  {
+    const depositor = Keypair.generate();
+    const attacker = Keypair.generate();
+    await Promise.all([
+      connection.confirmTransaction(await connection.requestAirdrop(depositor.publicKey, 0.1 * LAMPORTS_PER_SOL)),
+      connection.confirmTransaction(await connection.requestAirdrop(attacker.publicKey, 0.1 * LAMPORTS_PER_SOL)),
+    ]);
+    const drop = await createDropWithReceipt(depositor, BigInt(0.02 * LAMPORTS_PER_SOL));
+
+    const build = () => new Transaction().add(buildCloseReceiptIx({
+      leafBytes: drop.leafBytes,
+      receipt: drop.receipt,
+      depositorKey: attacker.publicKey,
+    }));
+    build.signers = [attacker];
+    record(await expectFail("G", build, /InvalidDepositReceipt|0x17e1|6017/));
+  }
+
+  // ============================================================
+  // TEST H: close_receipt on nonexistent receipt → AccountNotInitialized
+  //   No receipt has ever been created for this leaf. Anchor's seeds+bump
+  //   constraint tries to load the account and fails.
+  // ============================================================
+  console.log("\n[H] close_receipt on nonexistent receipt → AccountNotInitialized");
+  {
+    const depositor = Keypair.generate();
+    await connection.confirmTransaction(
+      await connection.requestAirdrop(depositor.publicKey, 0.1 * LAMPORTS_PER_SOL)
+    );
+    // Random leaf with no receipt ever created
+    const fakeLeafBytes = crypto.randomBytes(32);
+    const [fakeReceipt] = getReceiptPDA(fakeLeafBytes);
+
+    const build = () => new Transaction().add(buildCloseReceiptIx({
+      leafBytes: fakeLeafBytes,
+      receipt: fakeReceipt,
+      depositorKey: depositor.publicKey,
+    }));
+    build.signers = [depositor];
+    record(await expectFail("H", build, /AccountNotInitialized|3012|0xbc4/));
+  }
+
+  // ============================================================
+  // TEST I: close_receipt with wrong leaf arg → seed derivation fails
+  //   Pass a real receipt account, but the leaf arg doesn't match it.
+  //   Anchor re-derives the expected PDA from the leaf arg and rejects.
+  // ============================================================
+  console.log("\n[I] close_receipt with wrong leaf arg → ConstraintSeeds");
+  {
+    const depositor = Keypair.generate();
+    await connection.confirmTransaction(
+      await connection.requestAirdrop(depositor.publicKey, 0.1 * LAMPORTS_PER_SOL)
+    );
+    const drop = await createDropWithReceipt(depositor, BigInt(0.02 * LAMPORTS_PER_SOL));
+
+    // Pass the real receipt account but a bogus leaf arg. Anchor's
+    // `seeds = [b"receipt", leaf.as_ref()]` with bogus leaf derives a
+    // different expected PDA, triggering ConstraintSeeds.
+    const bogusLeafBytes = crypto.randomBytes(32);
+    const build = () => new Transaction().add(buildCloseReceiptIx({
+      leafBytes: bogusLeafBytes,
+      receipt: drop.receipt,
+      depositorKey: depositor.publicKey,
+    }));
+    build.signers = [depositor];
+    record(await expectFail("I", build, /ConstraintSeeds|seeds constraint|2006|0x7d6/));
+  }
+
+  // ============================================================
+  // TEST J: close_receipt followed by revoke_drop → revoke fails
+  //   After close_receipt, the receipt PDA is gone. A subsequent revoke
+  //   attempt fails on the receipt PDA lookup.
+  // ============================================================
+  console.log("\n[J] close_receipt then revoke → revoke fails");
+  {
+    const depositor = Keypair.generate();
+    await connection.confirmTransaction(
+      await connection.requestAirdrop(depositor.publicKey, 0.1 * LAMPORTS_PER_SOL)
+    );
+    const drop = await createDropWithReceipt(depositor, BigInt(0.02 * LAMPORTS_PER_SOL));
+
+    // Close the receipt first
+    const closeIx = buildCloseReceiptIx({
+      leafBytes: drop.leafBytes,
+      receipt: drop.receipt,
+      depositorKey: depositor.publicKey,
+    });
+    try {
+      await sendAndConfirmTransaction(connection, new Transaction().add(closeIx), [depositor]);
+      console.log("    close_receipt succeeded (expected)");
+    } catch (e) {
+      console.log("  [FAIL] J setup: close_receipt should have succeeded:", e.message);
+      fail++;
+    }
+
+    console.log(`    waiting ${TIMEOUT_WAIT_MS}ms for timeout...`);
+    await sleep(TIMEOUT_WAIT_MS);
+
+    // Now try to revoke — receipt is gone
+    const build = () => new Transaction().add(buildRevokeIx({
+      ...drop,
+      depositorKey: depositor.publicKey,
+    }));
+    build.signers = [depositor];
+    record(await expectFail("J", build, /AccountNotInitialized|3012|0xbc4/));
+  }
+
+  // ============================================================
+  // TEST K: double close_receipt → second call fails
+  //   First close succeeds and removes the PDA. Second close fails on
+  //   AccountNotInitialized.
+  // ============================================================
+  console.log("\n[K] Double close_receipt → second call fails");
+  {
+    const depositor = Keypair.generate();
+    await connection.confirmTransaction(
+      await connection.requestAirdrop(depositor.publicKey, 0.1 * LAMPORTS_PER_SOL)
+    );
+    const drop = await createDropWithReceipt(depositor, BigInt(0.02 * LAMPORTS_PER_SOL));
+
+    const closeIx = buildCloseReceiptIx({
+      leafBytes: drop.leafBytes,
+      receipt: drop.receipt,
+      depositorKey: depositor.publicKey,
+    });
+    try {
+      await sendAndConfirmTransaction(connection, new Transaction().add(closeIx), [depositor]);
+      console.log("    first close succeeded (expected)");
+    } catch (e) {
+      console.log("  [FAIL] K setup: first close should have succeeded:", e.message);
+      fail++;
+    }
+
+    // Second close should fail
+    const build = () => new Transaction().add(buildCloseReceiptIx({
+      leafBytes: drop.leafBytes,
+      receipt: drop.receipt,
+      depositorKey: depositor.publicKey,
+    }));
+    build.signers = [depositor];
+    record(await expectFail("K", build, /AccountNotInitialized|3012|0xbc4/));
+  }
+
   console.log(`\n=== Results: ${pass} passed, ${fail} failed ===`);
   process.exit(fail === 0 ? 0 : 1);
 }
 
-main().catch(e => {
+main().then(() => process.exit(0)).catch(e => {
   console.error("Fatal:", e);
   if (e.logs) e.logs.forEach(l => console.error(`  ${l}`));
   process.exit(1);

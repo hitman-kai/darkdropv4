@@ -155,21 +155,42 @@ Because `leaf` is a collision-resistant commitment to ALL four inputs, the depos
 
 ### Privacy cost of revoking
 
-Revoking is a one-way privacy trade. Recovering the deposit requires the depositor to publicly:
+**The privacy cost begins at deposit, not at revoke.**
 
-1. Sign the revoke TX from their own wallet
-2. Reveal the full leaf preimage (secret, nullifier, blinding) on-chain
+Creating a `DepositReceipt` at deposit time creates an indexable on-chain record linking your wallet to a specific leaf and amount. This link is observable from the moment of deposit, regardless of whether the drop is later revoked or the receipt is closed. The V2 credit-note model still hides which leaf was claimed (the `leaf ↔ nullifier_hash` mapping remains private), so the receipt does NOT leak the recipient of a normal claim — but it does permanently reveal that your wallet deposited amount A with leaf L. The `close_receipt` instruction returns the rent but does not erase this from indexer history.
+
+If you go on to exercise revoke, additional linkage is revealed on top of this:
+
+1. Signing the revoke TX from your own wallet (same wallet already in the receipt).
+2. Revealing the full leaf preimage (secret, nullifier, blinding) on-chain, which publishes the nullifier_hash for your drop.
 
 Any observer can then correlate:
-- The depositor wallet (revoke signer) with the original `create_drop` TX (same leaf)
-- The revealed nullifier with the leaf (now on-chain as a nullifier PDA)
-- The deposit amount (was always visible at `create_drop` time)
+- The depositor wallet (revoke signer) with the original `create_drop` TX (same leaf).
+- The revealed nullifier with the leaf (now on-chain as a nullifier PDA).
+- The deposit amount (was already visible from both `create_drop` and the receipt).
 
-This publicly links the depositor to a specific unclaimed drop. It does NOT affect the anonymity of OTHER drops in the Merkle tree — revoke reveals only the revoking user's own preimage — but the revoking user loses privacy on that particular deposit.
+Revoke's additional cost is the publication of the nullifier_hash and leaf preimage. It does NOT affect the anonymity of OTHER drops in the Merkle tree.
 
-This is an acceptable tradeoff because revoke is a FALLBACK path: the only alternative is permanent loss of funds. Users who prioritize privacy over recoverability should avoid creating receipts (use the legacy 5-account `create_drop` call) and simply ensure their claim codes are delivered reliably. Users who want the fallback accept that if they ever exercise it, that particular drop becomes publicly attributable to them.
+**What revoke does NOT break.** The claim-side anonymity of *other* users is unchanged. The revoke PDA and nullifier sharing with claim means an observer sees ONE of two events per nullifier (claim OR revoke) but never both — they cannot distinguish whether a nullifier was claimed anonymously or revoked (unless they separately correlate the revoker's wallet signature).
 
-No change to other users' privacy. The revoke PDA and nullifier sharing with claim means an observer sees ONE of two events per nullifier (claim OR revoke) but never both — they cannot distinguish whether a nullifier was claimed anonymously or revoked (unless they separately correlate the revoker's wallet signature).
+**Guidance for users.** The receipt path trades claim-privacy for recoverability:
+
+- If you prioritize claim privacy: use the legacy 5-account `create_drop` call (no receipt, no revoke). Ensure your claim code is delivered reliably. This path preserves full V2 anonymity — your wallet does not appear on-chain in the deposit unless you deposit directly (not via relayer).
+- If you prioritize recoverability: use the 7-account `create_drop` call. Accept that your wallet is publicly linked to the specific leaf and amount from the moment of deposit. This is true even if the drop is claimed normally and you later call `close_receipt` to reclaim the rent. The linkage does NOT compose with the claim's recipient, but it does reveal that you made the deposit.
+
+### Closing an unused receipt
+
+If a receipt-bearing drop is claimed normally (not revoked), the receipt PDA becomes orphaned because `revoke_drop`'s flow is blocked by the now-existing nullifier PDA. To reclaim the ~0.00151 SOL receipt rent in this case, the depositor calls `close_receipt`:
+
+```
+Instruction: close_receipt
+Args:     leaf ([u8; 32])
+Accounts: deposit_receipt (mut, close = depositor), depositor (signer, mut)
+```
+
+The close is unconditional: the program does not verify that the drop was claimed. The depositor is trusted to decide off-chain when closure is safe. Closing prematurely surrenders the revoke option but is otherwise harmless — only the depositor can sign.
+
+Design rationale for unconditional close: any on-chain verification (via preimage or nullifier_hash argument) would either leak the preimage publicly (same cost as revoke) or introduce a new deposit↔close linkage source. The unconditional close was selected after explicitly rejecting re-seeding the receipt by `nullifier_hash` (would enable a trivial deposit↔claim linkage) and rejecting an auto-close inside `claim_credit` (would require the claim's account list to reference a leaf-dependent PDA, breaking V2). See Audit #4 M-01 for the full analysis.
 
 ### Backward compatibility
 
@@ -518,6 +539,20 @@ Obligation-aware bound: `refund <= vault.total_deposited - vault.total_withdrawn
 | 4 | depositor | yes | yes |
 | 5 | system_program | no | no |
 
+### close_receipt
+
+```
+Args: leaf ([u8;32])
+Accounts: deposit_receipt, depositor, system_program
+```
+
+Close an orphaned DepositReceipt after a drop has been claimed normally (not revoked). Unconditional close signed by the depositor; returns ~0.00151 SOL rent. Does NOT verify that the drop was claimed — the depositor judges off-chain. Closing prematurely surrenders the revoke option. See the "Privacy cost of revoking" section for why the close is unconditional.
+
+| Index | Account | Writable | Signer |
+|-------|---------|----------|--------|
+| 0 | deposit_receipt | yes | no |
+| 1 | depositor | yes | yes |
+
 ### ProofData struct
 
 ```rust
@@ -614,14 +649,15 @@ Script: `scripts/relayer-test.js`.
 | Recipient is TX signer | **false** |
 | Recipient is TX fee payer | **false** |
 
-### Revoke Tests (localnet)
+### Revoke & close_receipt Tests (localnet)
 
 | Script | Coverage | Status |
 |--------|----------|--------|
 | `scripts/revoke-test.js` | E2E: create drop with receipt → wait time-lock → revoke → verify refund, receipt closed, nullifier created, no Transfer inner instructions | PASS |
-| `scripts/security-revoke-tests.js` | 6 attack vectors: before-timeout, non-depositor signer, revoke-after-claim, double-revoke, wrong-leaf-arg, cross-receipt preimage | 6/6 PASS |
+| `scripts/security-revoke-tests.js` | 11 attack vectors: 6 revoke (before-timeout, non-depositor, after-claim, double-revoke, wrong-leaf, cross-receipt preimage) + 5 close_receipt (non-depositor, nonexistent, wrong-leaf, revoke-after-close, double-close) | 11/11 PASS |
 | `scripts/revoke-crossimpl-test.js` | BE endianness consistency across frontend `amountToFieldBE`, circuit `amount` field element, and program `u64_to_field_be` | PASS |
 | `scripts/legacy-create-drop-test.js` | Backward compat: 5-account `create_drop` succeeds, produces no receipt, subsequent `claim_credit` works | PASS |
+| `scripts/close-receipt-test.js` | E2E: create drop with receipt → claim normally (not revoke) → close_receipt → verify receipt closed, depositor refunded, nullifier PDA + CreditNote untouched | PASS |
 
 Run localnet tests with the `short-revoke-timeout` Cargo feature so the 30-day wait becomes 5 seconds:
 

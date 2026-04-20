@@ -136,4 +136,14 @@ pub mod darkdrop {
     ) -> Result<()> {
         instructions::revoke_drop::handle_revoke_drop(ctx, leaf, nullifier_hash, preimage)
     }
+
+    /// Close an unused DepositReceipt and return rent to the depositor.
+    /// Unconditional: depositor signs, no nullifier state check (see Audit 04 M-01).
+    /// Closing surrenders the revoke option for that drop.
+    pub fn close_receipt(
+        ctx: Context<CloseReceipt>,
+        leaf: [u8; 32],
+    ) -> Result<()> {
+        instructions::close_receipt::handle_close_receipt(ctx, leaf)
+    }
 }

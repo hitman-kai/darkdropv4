@@ -296,7 +296,7 @@ async function main() {
   }
 }
 
-main().catch(e => {
+main().then(() => process.exit(0)).catch(e => {
   console.error("Fatal:", e);
   if (e.logs) e.logs.forEach(l => console.error(`  ${l}`));
   process.exit(1);

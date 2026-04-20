@@ -282,7 +282,7 @@ async function main() {
   console.log("Seeder's 5-account create_drop path is safe after the upgrade.");
 }
 
-main().catch(e => {
+main().then(() => process.exit(0)).catch(e => {
   console.error("Fatal:", e.message);
   if (e.logs) e.logs.forEach(l => console.error(`  ${l}`));
   process.exit(1);

@@ -35,7 +35,7 @@ const path = require("path");
 
 // Config
 const RPC_URL = process.env.RPC_URL || "http://127.0.0.1:8899";
-const PROGRAM_ID = new PublicKey("GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU");
+const PROGRAM_ID = new PublicKey(process.env.PROGRAM_ID || "GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU");
 const KEYPAIR_PATH = process.env.KEYPAIR || path.join(require("os").homedir(), ".config/solana/id.json");
 const BUILD_DIR = path.join(__dirname, "../circuits/build");
 // V2 circuit artifacts (amount is private)
@@ -483,7 +483,7 @@ async function main() {
   }
 }
 
-main().catch(e => {
+main().then(() => process.exit(0)).catch(e => {
   console.error("Fatal:", e);
   process.exit(1);
 });
