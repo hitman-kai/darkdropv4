@@ -9,6 +9,7 @@ pub mod migrate_vault;
 pub mod initialize_note_pool;
 pub mod deposit_to_note_pool;
 pub mod claim_from_note_pool;
+pub mod revoke_drop;
 
 pub use initialize::*;
 pub use create_drop::*;
@@ -21,3 +22,4 @@ pub use migrate_vault::*;
 pub use initialize_note_pool::*;
 pub use deposit_to_note_pool::*;
 pub use claim_from_note_pool::*;
+pub use revoke_drop::*;

@@ -12,6 +12,15 @@ pub const MAX_DROP_AMOUNT: u64 = 100_000_000_000;
 // Minimum deposit to prevent tree pollution and Merkle root DoS (0.00001 SOL)
 pub const MIN_DEPOSIT_LAMPORTS: u64 = 10_000;
 
+// Time-lock before a depositor can revoke an unclaimed drop.
+// The `short-revoke-timeout` feature is for localnet/devnet testing so the
+// 30-day wait doesn't have to elapse in real time.
+#[cfg(feature = "short-revoke-timeout")]
+pub const REVOKE_TIMEOUT: i64 = 5;
+
+#[cfg(not(feature = "short-revoke-timeout"))]
+pub const REVOKE_TIMEOUT: i64 = 2_592_000;
+
 // Number of public inputs in the Groth16 proof
 // [merkle_root, nullifier_hash, recipient, amount_commitment, password_hash, amount]
 pub const NR_PUBLIC_INPUTS: usize = 6;
@@ -170,6 +179,34 @@ impl CreditNote {
         + 32   // nullifier_hash
         + 32   // salt
         + 8;   // created_at
+}
+
+/// DepositReceipt — created at deposit time if the depositor wants the
+/// ability to revoke an unclaimed drop after `REVOKE_TIMEOUT` seconds.
+///
+/// Keyed by the full leaf (one receipt per drop). Rent is paid by the
+/// depositor (not by the sender/relayer) so the depositor owns the PDA
+/// and recovers the rent on close.
+///
+/// The receipt is the only on-chain link between a depositor wallet and
+/// a specific leaf. Anyone can see the receipt exists, but without the
+/// leaf preimage no link to the claim/withdraw can be inferred.
+#[account]
+pub struct DepositReceipt {
+    pub bump: u8,
+    pub depositor: Pubkey,
+    pub amount: u64,
+    pub created_at: i64,
+    pub leaf: [u8; 32],
+}
+
+impl DepositReceipt {
+    pub const SIZE: usize = 8   // discriminator
+        + 1    // bump
+        + 32   // depositor
+        + 8    // amount
+        + 8    // created_at
+        + 32;  // leaf
 }
 
 /// NotePoolTree — stores the second-layer Merkle tree for credit note mixing.

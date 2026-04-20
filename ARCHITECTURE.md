@@ -1,6 +1,6 @@
 # DARKDROP V4 — CURRENT DEPLOYED STATE
 
-Last updated: April 6, 2026
+Last updated: April 20, 2026
 
 This document is the source of truth for the current deployed state. It supersedes the original BLUEPRINT.md where the two conflict.
 
@@ -10,7 +10,7 @@ This document is the source of truth for the current deployed state. It supersed
 
 - **Program ID:** `GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU`
 - **Cluster:** Devnet
-- **Binary size:** 451 KB
+- **Binary size:** 601 KB
 - **IDL account:** `Ga5PRgbVxhh9ek39BRHCXgsb5obHqYooq4qV2ebJ8tKG` (v0.2.0, obfuscated field names)
 - **Vault PDA:** `3ioMEKQvKnLaR8JFQUgsNFDby9Xi89M5MWZXNzdUJZoG`
 - **Merkle Tree PDA:** `2rvpifNShofeGz1BqJHeVPHoyvm43fYpcU5vtgozLrA2`
@@ -20,7 +20,7 @@ This document is the source of truth for the current deployed state. It supersed
 
 ### Vault state
 
-- Merkle tree: 22 leaves inserted (18 legacy + 4 credit note tests)
+- Merkle tree: ~163 leaves (grows continuously via seeder, ~15–30 drops/day)
 - Legacy stuck funds: ~0.2 SOL in old sol_vault PDA (system-owned, orphaned after treasury migration)
 - Drop cap: 100 SOL
 
@@ -122,6 +122,95 @@ The IDL (v0.2.0) uses deliberately uninformative field names:
 | fee rate (withdraw) | `rate` | u16, not decoded as lamports |
 
 No field in any instruction is named "amount", "lamports", "fee", or "balance".
+
+---
+
+## REVOKE INSTRUCTION (deployed April 20, 2026)
+
+### Problem
+
+If a user loses their claim code, the SOL sits in the treasury forever with no recovery path. On devnet this is cosmetic — on mainnet it's the biggest foot-gun in the protocol. The depositor needs a fallback path to reclaim unclaimed drops without breaking the anonymity guarantees for drops that ARE claimed.
+
+### Design
+
+At deposit time, the depositor (optionally) allocates a `DepositReceipt` PDA seeded by the leaf. The receipt records `depositor`, `amount`, `leaf`, and `created_at`. Rent is paid by the depositor so they (not the sender/relayer) own it.
+
+After `REVOKE_TIMEOUT` seconds have elapsed, the depositor calls `revoke_drop` with the leaf preimage. The program verifies the preimage on-chain, creates the nullifier PDA, and refunds the deposit via direct lamport manipulation.
+
+Constants:
+- Production: `REVOKE_TIMEOUT = 2,592,000` (30 days)
+- Test: `REVOKE_TIMEOUT = 5` seconds (behind the `short-revoke-timeout` Cargo feature)
+
+### Security (Option C — preimage verification)
+
+An earlier design (Option A) stored `nullifier_hash` in the receipt as declared by the depositor. It is BROKEN: a malicious depositor can declare a fake hash, share the claim code with a real nullifier, and double-spend — their revoke creates a PDA at the fake hash, the real claim creates a PDA at the real hash, treasury pays twice.
+
+Option C (deployed) fixes this by requiring the depositor to submit the FULL leaf preimage `(secret, nullifier, blinding_factor)` as an opaque 96-byte field. The program:
+
+1. Reads `amount` from the on-chain receipt (not user-supplied — can't be tampered)
+2. Recomputes `leaf = Poseidon(secret, nullifier, amount, blinding_factor)` and verifies it matches `receipt.leaf`
+3. Recomputes `nullifier_hash = Poseidon(nullifier)` and uses it to derive the nullifier PDA
+
+Because `leaf` is a collision-resistant commitment to ALL four inputs, the depositor is forced to reveal the exact preimage they used. The derived `nullifier_hash` is therefore the same one any legitimate claim would produce. Claim and revoke share the `[b"nullifier", nullifier_hash]` PDA namespace, giving mutual exclusion: whichever happens first blocks the other.
+
+### Privacy cost of revoking
+
+Revoking is a one-way privacy trade. Recovering the deposit requires the depositor to publicly:
+
+1. Sign the revoke TX from their own wallet
+2. Reveal the full leaf preimage (secret, nullifier, blinding) on-chain
+
+Any observer can then correlate:
+- The depositor wallet (revoke signer) with the original `create_drop` TX (same leaf)
+- The revealed nullifier with the leaf (now on-chain as a nullifier PDA)
+- The deposit amount (was always visible at `create_drop` time)
+
+This publicly links the depositor to a specific unclaimed drop. It does NOT affect the anonymity of OTHER drops in the Merkle tree — revoke reveals only the revoking user's own preimage — but the revoking user loses privacy on that particular deposit.
+
+This is an acceptable tradeoff because revoke is a FALLBACK path: the only alternative is permanent loss of funds. Users who prioritize privacy over recoverability should avoid creating receipts (use the legacy 5-account `create_drop` call) and simply ensure their claim codes are delivered reliably. Users who want the fallback accept that if they ever exercise it, that particular drop becomes publicly attributable to them.
+
+No change to other users' privacy. The revoke PDA and nullifier sharing with claim means an observer sees ONE of two events per nullifier (claim OR revoke) but never both — they cannot distinguish whether a nullifier was claimed anonymously or revoked (unless they separately correlate the revoker's wallet signature).
+
+### Backward compatibility
+
+`create_drop` was extended via Anchor's `remaining_accounts` pattern, NOT by changing the declared account list. The five-account legacy path (vault, merkle_tree, treasury, sender, system_program) still works unchanged — the seeder and any unupdated client continue operating, they just don't get a receipt and thus no revoke capability for drops made that way.
+
+New clients pass two additional accounts after system_program:
+- `depositor` (signer, mut) — pays receipt rent, authorized to revoke
+- `deposit_receipt` (mut) — PDA `[b"receipt", leaf]`
+
+### On-chain footprint
+
+| Step | Inner instructions | Amount visible? |
+|------|-------------------|-----------------|
+| create_drop with receipt | CPI Transfer (sender→treasury) + CreateAccount (receipt PDA) | Yes (deposit amount, same as before) |
+| revoke_drop | 1 CreateAccount (nullifier PDA). Refund is direct lamport manipulation. | Balance delta only (no decoded Transfer) |
+
+Same visibility profile as `withdraw_credit` — zero CPI Transfer instructions on the payout.
+
+### DepositReceipt struct
+
+```rust
+pub struct DepositReceipt {
+    pub bump: u8,
+    pub depositor: Pubkey,
+    pub amount: u64,
+    pub created_at: i64,
+    pub leaf: [u8; 32],
+}
+// PDA seeds: [b"receipt", leaf]
+// Size: 89 bytes, rent ~0.00151 SOL (returned on revoke)
+```
+
+### New error codes
+
+| Code | Name | Description |
+|------|------|-------------|
+| 6014 | RevokeTooEarly | `now < receipt.created_at + REVOKE_TIMEOUT` |
+| 6015 | UnauthorizedRevoke | Signer does not match `receipt.depositor` |
+| 6016 | DropAlreadyClaimed | Reserved for explicit claim/revoke race detection |
+| 6017 | InvalidDepositReceipt | `create_drop` remaining_accounts failed signer/writable/PDA checks |
+| 6018 | LeafAlreadyDeposited | A receipt already exists for this leaf |
 
 ---
 
@@ -274,6 +363,10 @@ WITHDRAW (withdraw_credit — same as before):
 | `deposit_to_note_pool` | vault, note_pool, note_pool_tree, credit_note, recipient, payer, system_program | nullifier_hash, opening (72 bytes), pool_params (96 bytes) | Opens credit note, constructs pool leaf with verified amount, inserts into pool tree, closes credit note. |
 | `claim_from_note_pool` | vault, note_pool, note_pool_tree, credit_note, pool_nullifier, recipient, payer, system_program | pool_nullifier_hash, proof (ProofData), inputs (64 bytes) | Verifies V3 proof, creates fresh CreditNote PDA, creates pool nullifier PDA. |
 
+### 14. Revoke instruction for unclaimed drops
+
+`revoke_drop` added April 20, 2026 so depositors can reclaim SOL from drops whose claim codes were lost. A `DepositReceipt` PDA is optionally created at deposit time (via `remaining_accounts` for backward compatibility with the legacy 5-account `create_drop` call). After a 30-day time-lock, the depositor submits the full leaf preimage and the program verifies `leaf == Poseidon(secret, nullifier, receipt.amount, blinding)` on-chain. Because the leaf is a collision-resistant commitment, the depositor is forced to reveal the same `nullifier` that any legitimate claimer would use — claim and revoke share the `[b"nullifier", nullifier_hash]` PDA namespace, giving mutual exclusion. Refund is via direct lamport manipulation (no CPI). See the REVOKE INSTRUCTION section above for the full design and the Option-A-was-broken rationale.
+
 ---
 
 ## CIRCUITS
@@ -403,6 +496,28 @@ The `opening` field is an opaque 40-byte blob: `amount(8 LE) + blinding_factor(3
 | 5 | payer | yes | yes |
 | 6 | system_program | no | no |
 
+### revoke_drop
+
+```
+Args: leaf ([u8;32]), nullifier_hash ([u8;32]), preimage (Vec<u8> — 96 bytes opaque)
+Accounts: vault, treasury, deposit_receipt, nullifier_account, depositor, system_program
+```
+
+Reclaim SOL from an unclaimed drop after `REVOKE_TIMEOUT` seconds. The `preimage` field is an opaque 96-byte blob: `secret(32) + nullifier(32) + blinding_factor(32)`.
+
+On-chain: reads `amount` from the receipt (not user-supplied), recomputes `leaf = Poseidon(secret, nullifier, amount, blinding)` and `nullifier_hash = Poseidon(nullifier)`, verifies both match, creates the nullifier PDA (shared namespace with `claim_credit` — collision = already claimed), refunds via direct lamport manipulation. Receipt PDA is closed, rent returned to depositor.
+
+Obligation-aware bound: `refund <= vault.total_deposited - vault.total_withdrawn` AND `refund <= treasury_lamports - rent_exempt_min`. Increments `total_withdrawn` on success (keeps `admin_sweep` accounting correct).
+
+| Index | Account | Writable | Signer |
+|-------|---------|----------|--------|
+| 0 | vault | yes | no |
+| 1 | treasury | yes | no |
+| 2 | deposit_receipt | yes | no |
+| 3 | nullifier_account | yes | no |
+| 4 | depositor | yes | yes |
+| 5 | system_program | no | no |
+
 ### ProofData struct
 
 ```rust
@@ -498,6 +613,25 @@ Script: `scripts/relayer-test.js`.
 | Fee deducted correctly | 0.0005 SOL (0.5%) |
 | Recipient is TX signer | **false** |
 | Recipient is TX fee payer | **false** |
+
+### Revoke Tests (localnet)
+
+| Script | Coverage | Status |
+|--------|----------|--------|
+| `scripts/revoke-test.js` | E2E: create drop with receipt → wait time-lock → revoke → verify refund, receipt closed, nullifier created, no Transfer inner instructions | PASS |
+| `scripts/security-revoke-tests.js` | 6 attack vectors: before-timeout, non-depositor signer, revoke-after-claim, double-revoke, wrong-leaf-arg, cross-receipt preimage | 6/6 PASS |
+| `scripts/revoke-crossimpl-test.js` | BE endianness consistency across frontend `amountToFieldBE`, circuit `amount` field element, and program `u64_to_field_be` | PASS |
+| `scripts/legacy-create-drop-test.js` | Backward compat: 5-account `create_drop` succeeds, produces no receipt, subsequent `claim_credit` works | PASS |
+
+Run localnet tests with the `short-revoke-timeout` Cargo feature so the 30-day wait becomes 5 seconds:
+
+```
+cd program && cargo build-sbf --features short-revoke-timeout
+cp target/sbpf-solana-solana/release/darkdrop.so target/deploy/darkdrop.so
+# solana-test-validator --reset; solana program deploy ...
+PROGRAM_ID=<deployed> node scripts/revoke-test.js
+PROGRAM_ID=<deployed> node scripts/security-revoke-tests.js
+```
 
 ---
 
@@ -729,19 +863,19 @@ anchor idl upgrade GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU \
 
 1. **~0.2 SOL stuck in legacy sol_vault.** Orphaned after treasury migration. No admin_sweep instruction.
 
-2. **No revoke instruction.** Depositors cannot reclaim funds from unclaimed drops.
+2. **Anonymity set is small.** Vault has ~163 leaves on devnet. Seeder running 24/7 on Jetson adds 15–30 drops/day with diverse amounts.
 
-3. **Anonymity set is small.** Vault has ~22 leaves on devnet. Need to self-seed with diverse amounts.
+3. **No SPL token support.** Only SOL.
 
-4. **No SPL token support.** Only SOL.
+4. **`anchor build` broken.** Must use `cargo build-sbf`. IDL hand-written.
 
-5. **`anchor build` broken.** Must use `cargo build-sbf`. IDL hand-written.
+5. **No QR codes, burn links, or history page.** Core flow only.
 
-6. **No QR codes, burn links, or history page.** Core flow only.
+6. **Deposit amount still visible.** The `create_drop` CPI transfer reveals the deposit amount. This is fundamental — SOL must physically move. The credit note model hides the amount at claim time and decorrelates it at withdraw time, but the deposit itself is public.
 
-7. **Deposit amount still visible.** The `create_drop` CPI transfer reveals the deposit amount. This is fundamental — SOL must physically move. The credit note model hides the amount at claim time and decorrelates it at withdraw time, but the deposit itself is public.
+7. **Relayer deployed on Jetson behind a Cloudflare tunnel.** Production-ready for the current scale. Migration to a public VPS is not blocking.
 
-8. **Relayer not on public VPS.** Running locally only. Needs deployment for production use.
+8. **Frontend does not yet surface revoke.** The `revoke_drop` instruction is live on-chain, but `/drop/create` does not yet pass the optional `depositor` + `deposit_receipt` accounts and there is no UI for listing/revoking a user's unclaimed drops. Legacy 5-account `create_drop` path remains the default until the frontend is updated.
 
 ---
 
@@ -758,6 +892,7 @@ anchor idl upgrade GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU \
 - Commitment re-randomization via **salt** (on-chain commitments cannot be matched to deposit data)
 - **Recursive privacy** via Note Pool (second-layer Merkle mixer for credit notes)
 - **Dishonest leaf elimination** at pool layer (program constructs pool leaves with verified amounts)
+- Depositor fallback via **30-day revoke path** for unclaimed drops (sender-keyed, preimage-verified, shares nullifier namespace with claim so double-spend is impossible)
 
 ---
 

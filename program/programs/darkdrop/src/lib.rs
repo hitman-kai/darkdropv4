@@ -23,8 +23,8 @@ pub mod darkdrop {
     }
 
     /// Create a new drop: accept SOL, insert leaf into Merkle tree.
-    pub fn create_drop(
-        ctx: Context<CreateDrop>,
+    pub fn create_drop<'info>(
+        ctx: Context<'_, '_, '_, 'info, CreateDrop<'info>>,
         leaf: [u8; 32],
         amount: u64,
         amount_commitment: [u8; 32],
@@ -123,5 +123,17 @@ pub mod darkdrop {
         instructions::claim_from_note_pool::handle_claim_from_note_pool(
             ctx, pool_nullifier_hash, proof, inputs,
         )
+    }
+
+    /// Revoke an unclaimed drop after the time-lock expires.
+    /// Depositor submits the leaf preimage; program reconstructs the leaf
+    /// on-chain to bind the nullifier. Refund via direct lamport manipulation.
+    pub fn revoke_drop(
+        ctx: Context<RevokeDrop>,
+        leaf: [u8; 32],
+        nullifier_hash: [u8; 32],
+        preimage: Vec<u8>,
+    ) -> Result<()> {
+        instructions::revoke_drop::handle_revoke_drop(ctx, leaf, nullifier_hash, preimage)
     }
 }

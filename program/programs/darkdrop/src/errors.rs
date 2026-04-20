@@ -43,4 +43,19 @@ pub enum DarkDropError {
 
     #[msg("Vault already migrated")]
     AlreadyMigrated,
+
+    #[msg("Revoke attempted before timeout expired")]
+    RevokeTooEarly,
+
+    #[msg("Unauthorized revoke: signer is not the depositor")]
+    UnauthorizedRevoke,
+
+    #[msg("Drop already claimed or revoked")]
+    DropAlreadyClaimed,
+
+    #[msg("Invalid DepositReceipt account in create_drop remaining_accounts")]
+    InvalidDepositReceipt,
+
+    #[msg("A deposit receipt already exists for this leaf")]
+    LeafAlreadyDeposited,
 }
