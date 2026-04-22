@@ -15,9 +15,30 @@ const fira = Fira_Code({
   display: "swap",
 });
 
+const SITE_URL = "https://darkdrop.app";
+const SITE_TITLE = "DarkDrop";
+const SITE_DESCRIPTION =
+  "Unlinkable value transfer on Solana. Zero-knowledge proofs break every on-chain link.";
+
 export const metadata: Metadata = {
-  title: "DarkDrop",
-  description: "Unlinkable value transfer on Solana. Zero-knowledge proofs break every on-chain link.",
+  metadataBase: new URL(SITE_URL),
+  title: SITE_TITLE,
+  description: SITE_DESCRIPTION,
+  openGraph: {
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    url: SITE_URL,
+    siteName: SITE_TITLE,
+    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: SITE_TITLE }],
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: ["/opengraph-image"],
+    creator: "@darkdrop_sol",
+  },
 };
 
 export const viewport: Viewport = {

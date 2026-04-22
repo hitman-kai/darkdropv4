@@ -25,9 +25,14 @@ export default function Navbar() {
       style={{ height: "52px" }}
     >
       {/* Logo — left */}
-      <Link href="/" className="font-mono text-[10px] sm:text-[13px] tracking-[0.18em] sm:tracking-[0.22em] text-[var(--accent)] shrink-0 font-bold">
-        DARKDROP
-      </Link>
+      <div className="flex items-center gap-2 shrink-0">
+        <Link href="/" className="font-mono text-[10px] sm:text-[13px] tracking-[0.18em] sm:tracking-[0.22em] text-[var(--accent)] font-bold">
+          DARKDROP
+        </Link>
+        <span className="hidden sm:inline-flex font-mono text-[8px] tracking-[0.25em] text-[var(--accent-dim)] border border-[var(--border)] px-1.5 py-0.5 leading-none">
+          DEVNET
+        </span>
+      </div>
 
       {/* Nav links — center */}
       <div className="flex items-center gap-0 border-2 border-[var(--border)] bg-[rgba(0,0,0,0.5)] shrink-0">

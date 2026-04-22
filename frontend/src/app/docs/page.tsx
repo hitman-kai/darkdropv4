@@ -259,9 +259,19 @@ export default function DocsPage() {
               a private key &mdash; if you lose it, the SOL remains locked in the vault permanently.
             </FAQ>
             <FAQ q="Is DarkDrop audited?">
-              No. DarkDrop is unaudited and currently deployed on Solana devnet only. The code is open source
-              and the ZK circuits have been tested extensively, but it has not undergone a formal security audit.
-              Do not use it with real funds on mainnet without an audit.
+              Four audit reports have been published covering the Solana program, ZK circuits, fee and treasury
+              logic, and the revoke / note-pool layer. Reports and the fix tracker are in the{" "}
+              <a
+                href="https://github.com/hitman-kai/darkdropv4/tree/main/audits"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--accent)] hover:underline"
+              >
+                /audits
+              </a>{" "}
+              folder on GitHub. DarkDrop remains deployed on Solana devnet only &mdash; we have not yet
+              commissioned a third-party firm review, and the code should not be used with real funds on
+              mainnet until that step is completed.
             </FAQ>
             <FAQ q="What are the fees?">
               Direct claims have no protocol fee &mdash; you only pay Solana gas (~0.000005 SOL).

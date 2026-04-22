@@ -44,7 +44,14 @@ export default function Footer() {
         {/* Badges */}
         <div className="flex items-center gap-2 sm:ml-auto">
           <span className="arcade-badge">V4 DEVNET</span>
-          <span className="font-mono text-[9px] tracking-[0.12em] text-[rgba(224,224,224,0.2)]">UNAUDITED</span>
+          <a
+            href="https://github.com/hitman-kai/darkdropv4/tree/main/audits"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-[9px] tracking-[0.12em] text-[rgba(224,224,224,0.35)] hover:text-[var(--accent)] transition-colors"
+          >
+            4 AUDITS
+          </a>
         </div>
       </div>
     </footer>

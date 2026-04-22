@@ -61,6 +61,33 @@ export default function Home() {
               </div>
             ))}
           </div>
+
+          {/* Powered By strip */}
+          <div className="mt-16 ml-4 sm:ml-6">
+            <p className="mb-6 font-mono text-[9px] sm:text-[10px] tracking-[0.35em] text-[var(--accent-dim)]">
+              POWERED BY // RPC INFRASTRUCTURE
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-10 items-center">
+              {[
+                { name: "Alchemy", href: "https://alchemy.com", src: "/logos/alchemy.svg" },
+                { name: "Chainstack", href: "https://chainstack.com", src: "/logos/chainstack.svg" },
+                { name: "Helius", href: "https://helius.dev", src: "/logos/helius.svg" },
+                { name: "QuickNode", href: "https://quicknode.com", src: "/logos/quicknode.jpg" },
+              ].map(({ name, href, src }) => (
+                <a
+                  key={name}
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={name}
+                  className="logo-hover-dim flex items-center justify-center h-8"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={src} alt={name} className="max-h-8 max-w-full object-contain" />
+                </a>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>
