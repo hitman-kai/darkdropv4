@@ -6,11 +6,16 @@ Unlinkable value transfer on Solana. DarkDrop uses Groth16 zero-knowledge proofs
 
 DarkDrop splits the claim into two steps via a **credit note model**:
 
-1. **Deposit** (`create_drop`) -- SOL enters a program-owned treasury via CPI. Leaf inserted into Merkle tree. Claim code generated client-side.
-2. **Claim** (`claim_credit`) -- Groth16 proof verified on-chain (V2 circuit, amount is a private input). CreditNote PDA created storing a Poseidon commitment. Nullifier marked spent. Zero SOL moves. Zero amounts in instruction data.
+1. **Deposit** (`create_drop`) -- SOL enters a program-owned treasury via CPI. Leaf inserted into Merkle tree. Claim code generated client-side. Optionally, a `DepositReceipt` PDA is created so the depositor can revoke if the claim code is lost.
+2. **Claim** (`claim_credit`) -- Groth16 proof verified on-chain (V2 circuit, amount is a private input). CreditNote PDA created storing a re-randomized Poseidon commitment (salted to break deposit→claim linkage). Nullifier marked spent. Zero SOL moves. Zero amounts in instruction data.
 3. **Withdraw** (`withdraw_credit`) -- User opens the Poseidon commitment. Program verifies via on-chain recomputation. SOL transferred via direct lamport manipulation on the program-owned treasury. No CPI, no inner instruction. CreditNote PDA closed.
 
-The treasury PDA is owned by the DarkDrop program (not the system program), enabling direct lamport debit without `system_program::transfer`. The program stores dual verification keys (V1 for backward compatibility, V2 for credit notes). The IDL uses obfuscated field names (`data`, `inputs`, `opening`, `rate`) -- no field is named "amount", "fee", or "lamports".
+Two additional paths layer on top of the core flow:
+
+- **Note Pool (V3)** -- optional second-layer Merkle mixer for credit notes. `deposit_to_note_pool` opens a credit note and inserts a fresh pool leaf constructed by the program with a verified amount. `claim_from_note_pool` verifies a V3 Groth16 proof and issues a brand-new credit note. An observer must break both ZK layers to deanonymize.
+- **Revoke (30-day time-lock)** -- `revoke_drop` lets the depositor reclaim SOL from an unclaimed drop by submitting the full leaf preimage. The program reconstructs the leaf on-chain, derives the nullifier, and refunds via direct lamport manipulation. Claim and revoke share the nullifier PDA namespace, so a drop can only resolve one way. `close_receipt` recovers receipt rent for drops that were claimed normally.
+
+The treasury PDA is owned by the DarkDrop program (not the system program), enabling direct lamport debit without `system_program::transfer`. The program stores triple verification keys (V1 for backward compatibility, V2 for credit notes, V3 for note pool claims). The IDL uses obfuscated field names (`data`, `inputs`, `opening`, `rate`) -- no field is named "amount", "fee", or "lamports".
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for full technical details, deployed addresses, test results, and proof TX signatures.
 
@@ -61,9 +66,12 @@ solana program deploy target/deploy/darkdrop.so --program-id <KEYPAIR> -u devnet
 Requires Node.js v20+. Build from Linux filesystem (WSL2 performance):
 
 ```bash
-# Copy circuit artifacts
+# Copy circuit artifacts (V1 legacy + V2 credit note + V3 note pool)
 cp circuits/build/darkdrop_js/darkdrop.wasm frontend/public/circuits/
-cp circuits/build/darkdrop_v2_final.zkey frontend/public/circuits/
+cp circuits/build/darkdrop_final.zkey frontend/public/circuits/           # V1 legacy
+cp circuits/build/darkdrop_v2_final.zkey frontend/public/circuits/        # V2 credit note
+cp circuits/build/note_pool/note_pool_js/note_pool.wasm frontend/public/circuits/
+cp circuits/build/note_pool/note_pool_final.zkey frontend/public/circuits/ # V3 note pool
 
 # Build
 cd frontend
@@ -80,7 +88,7 @@ npm install
 npx ts-node src/index.ts
 ```
 
-Endpoints: `POST /api/relay/claim`, `POST /api/relay/create-drop`, `POST /api/relay/credit/claim`, `POST /api/relay/credit/withdraw`.
+Endpoints: `GET /health`, `POST /api/relay/claim` (legacy V1), `POST /api/relay/create-drop` (private deposit), `POST /api/relay/credit/claim` (V2 claim), `POST /api/relay/credit/withdraw` (V2 withdraw).
 
 ## Tests
 
@@ -102,22 +110,37 @@ node scripts/security-tests.js
 ## Project Structure
 
 ```
-circuits/           Circom circuit (V2, amount private)
-program/            Anchor program (6 instructions, dual VK)
-frontend/           Next.js 16 frontend (V3 design)
-relayer/            Express relay server (deposit + claim + withdraw)
-scripts/            E2E tests, security tests, stress test, VK export
+circuits/           Circom circuits (V2 credit note + V3 note pool)
+program/            Anchor program (13 instructions, triple VK — V1/V2/V3)
+frontend/           Next.js 16 frontend
+relayer/            Express relay server (5 endpoints: deposit + legacy claim + credit claim/withdraw + health)
+scripts/            E2E tests, security tests, stress test, migration runbooks, VK export
+audits/             4 security audit reports + fix tracker
 ```
 
 ## Security
 
 - Fee rate capped at 500 bps (5%) on-chain
-- Nullifier PDA prevents double-spend
+- Nullifier PDA prevents double-spend (shared namespace across `claim_credit` and `revoke_drop` gives mutual exclusion)
 - Poseidon commitment binding verified on-chain at withdrawal
+- Stored commitments re-randomized with a caller-supplied salt (breaks deposit→claim linkage)
 - Recipient bound to proof via Poseidon(pubkey)
-- 7/7 credit note security tests passing
-- 6/6 legacy security tests passing
-- Unaudited -- use at your own risk
+- `admin_sweep` obligation-aware: cannot drain SOL backing outstanding credit notes
+- Revoke is sender-keyed and time-locked (30 days), preimage-verified on-chain
+- Test matrix: 6/6 legacy, 7/7 credit note, 4/4 note pool, 11/11 revoke + close_receipt — all passing
+
+## Audits
+
+Four audit reports cover the program, circuits, fee/treasury logic, and the revoke + note-pool layer. See the [audit README](audits/README.md) for the summary table and fix tracker.
+
+| # | Report | Date | Scope |
+|---|--------|------|-------|
+| 1 | [Manual Review](audits/AUDIT-01-MANUAL-REVIEW.md) | 2026-04-06 | Fee system, credit notes, treasury, relay trust |
+| 2 | [Code Review](audits/AUDIT-02-CODE-REVIEW.md) | 2026-04-07 | Full instruction-level review |
+| 3 | [Post-Fix Review](audits/AUDIT-03-POST-FIX-REVIEW.md) | 2026-04-08 | Fix verification + `admin_sweep` + re-audit |
+| 4 | [Post-Revoke Review](audits/AUDIT-04-POST-REVOKE.md) | 2026-04-20 | V3 Note Pool + `revoke_drop` + `DepositReceipt` + privacy |
+
+No open HIGH or CRITICAL findings as of Audit 04. No third-party firm review yet — deployment restricted to Solana devnet.
 
 ## License
 

@@ -1,6 +1,6 @@
 # DARKDROP V4 — CURRENT DEPLOYED STATE
 
-Last updated: April 20, 2026
+Last updated: April 22, 2026
 
 This document is the source of truth for the current deployed state. It supersedes the original BLUEPRINT.md where the two conflict.
 
@@ -10,8 +10,8 @@ This document is the source of truth for the current deployed state. It supersed
 
 - **Program ID:** `GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU`
 - **Cluster:** Devnet
-- **Binary size:** 601 KB
-- **IDL account:** `Ga5PRgbVxhh9ek39BRHCXgsb5obHqYooq4qV2ebJ8tKG` (v0.2.0, obfuscated field names)
+- **Binary size:** 596 KB (610,664 bytes)
+- **IDL account:** `Ga5PRgbVxhh9ek39BRHCXgsb5obHqYooq4qV2ebJ8tKG` (v0.3.0, obfuscated field names; see KNOWN ISSUES — IDL is missing 5 instructions that exist in the binary)
 - **Vault PDA:** `3ioMEKQvKnLaR8JFQUgsNFDby9Xi89M5MWZXNzdUJZoG`
 - **Merkle Tree PDA:** `2rvpifNShofeGz1BqJHeVPHoyvm43fYpcU5vtgozLrA2`
 - **Treasury PDA:** `1427qYPVC3ghVifCtg45yDtoSvdzNKQ3TEce5kK3c6Wr` (program-owned, direct lamport manipulation)
@@ -450,6 +450,15 @@ Accounts: vault, treasury, authority, system_program
 
 One-time migration: creates the Treasury PDA on existing deployments where vault/merkle_tree already exist. Only callable by vault authority.
 
+### migrate_vault (migration)
+
+```
+Args: none
+Accounts: vault, authority, system_program
+```
+
+One-time migration: reallocates the Vault account to include the `total_deposited` and `total_withdrawn` fields used by obligation-aware accounting (`admin_sweep`, `revoke_drop`). Idempotent — returns `AlreadyMigrated` (6013) on repeat calls. Only callable by vault authority. See `scripts/migrate-vault-v2.js` for the upgrade runbook.
+
 ### create_drop
 
 ```
@@ -477,13 +486,13 @@ Uses V1 verification key (6 public inputs). Transfers SOL via direct lamport man
 
 ```
 Discriminator: [190, 242, 172, 79, 29, 82, 22, 163]
-Args: nullifier_hash ([u8;32]), proof (ProofData), inputs (Vec<u8> — 96 bytes opaque)
+Args: nullifier_hash ([u8;32]), proof (ProofData), inputs (Vec<u8> — 96 bytes opaque), salt ([u8;32])
 Accounts: vault, merkle_tree, credit_note, nullifier_account, recipient, payer, system_program
 ```
 
-Verifies Groth16 proof using V2 circuit (5 public inputs, amount is PRIVATE). Creates CreditNote PDA storing the Poseidon commitment. Marks nullifier spent. **ZERO SOL moves.** No amount anywhere in instruction data or events.
+Verifies Groth16 proof using V2 circuit (5 public inputs, amount is PRIVATE). Creates CreditNote PDA storing a re-randomized Poseidon commitment: `stored_commitment = Poseidon(amount_commitment, salt)`. Marks nullifier spent. **ZERO SOL moves.** No amount anywhere in instruction data or events.
 
-The `inputs` field is an opaque 96-byte blob: `merkle_root(32) + amount_commitment(32) + password_hash(32)`.
+The `inputs` field is an opaque 96-byte blob: `merkle_root(32) + amount_commitment(32) + password_hash(32)`. The `salt` is caller-supplied entropy that breaks the deposit→claim commitment linkage (fixes Audit 02 M-01-NEW).
 
 | Index | Account | Writable | Signer |
 |-------|---------|----------|--------|
@@ -593,6 +602,13 @@ pub struct CreditNote {
 | 6009 | CommitmentMismatch | Poseidon(amount, blinding) != stored commitment |
 | 6010 | UnauthorizedWithdraw | Recipient doesn't match CreditNote |
 | 6011 | InvalidInputLength | Opaque inputs/opening wrong size |
+| 6012 | BelowMinDeposit | Deposit amount below configured minimum |
+| 6013 | AlreadyMigrated | `migrate_vault` called on a vault already migrated |
+| 6014 | RevokeTooEarly | `now < receipt.created_at + REVOKE_TIMEOUT` |
+| 6015 | UnauthorizedRevoke | Signer does not match `receipt.depositor` |
+| 6016 | DropAlreadyClaimed | Reserved for explicit claim/revoke race detection |
+| 6017 | InvalidDepositReceipt | `create_drop` remaining_accounts failed signer/writable/PDA checks |
+| 6018 | LeafAlreadyDeposited | A receipt already exists for this leaf |
 
 ---
 
@@ -668,6 +684,23 @@ cp target/sbpf-solana-solana/release/darkdrop.so target/deploy/darkdrop.so
 PROGRAM_ID=<deployed> node scripts/revoke-test.js
 PROGRAM_ID=<deployed> node scripts/security-revoke-tests.js
 ```
+
+---
+
+## AUDITS
+
+Four audit reports have been published, all in [`/audits/`](audits/). The [audit README](audits/README.md) contains the summary table and the fix tracker.
+
+| # | Report | Date | Scope | Headline findings |
+|---|--------|------|-------|-------------------|
+| 1 | [Manual Review](audits/AUDIT-01-MANUAL-REVIEW.md) | 2026-04-06 | Fee system, credit notes, treasury, relay trust | 1 HIGH (fixed), 2 MEDIUM (accepted), 1 LOW |
+| 2 | [Code Review](audits/AUDIT-02-CODE-REVIEW.md) | 2026-04-07 | Full instruction-level review | 2 HIGH, 4 MEDIUM, 4 LOW, 7 INFO |
+| 3 | [Post-Fix Review](audits/AUDIT-03-POST-FIX-REVIEW.md) | 2026-04-08 | Fix verification + `admin_sweep` + re-audit | 1 HIGH, 3 MEDIUM, 3 LOW, 4 INFO (HIGH + 3 MEDIUMs fixed in-cycle) |
+| 4 | [Post-Revoke Review](audits/AUDIT-04-POST-REVOKE.md) | 2026-04-20 | V3 Note Pool + `revoke_drop` + `DepositReceipt` + counter invariants + privacy | 0 CRITICAL, 0 HIGH, 1 MEDIUM (fixed in-cycle), 4 LOW, 4 INFO |
+
+Scope-wide posture: no open HIGH or CRITICAL findings as of Audit 04. Open LOWs tracked in [`audits/README.md`](audits/README.md) are drop_cap validation, authority rotation, and zero-initialized root history (main + note_pool trees).
+
+DarkDrop has **not** yet commissioned a third-party firm review. Deployment is restricted to Solana devnet until that step is completed.
 
 ---
 
@@ -799,7 +832,7 @@ withdraw_credit: [8, 173, 134, 129, 40, 255, 134, 30]
 
 | File | Purpose |
 |------|---------|
-| `program/programs/darkdrop/src/lib.rs` | Entry point, 10 instruction routing |
+| `program/programs/darkdrop/src/lib.rs` | Entry point, 13 instruction routing |
 | `program/programs/darkdrop/src/state.rs` | Vault, Treasury, CreditNote, MerkleTreeAccount, NullifierAccount, NotePool, NotePoolTree, PoolNullifierAccount, ProofData |
 | `program/programs/darkdrop/src/instructions/initialize.rs` | initialize_vault (creates vault + merkle_tree + treasury) |
 | `program/programs/darkdrop/src/instructions/create_drop.rs` | create_drop (CPI to treasury) |
@@ -811,13 +844,16 @@ withdraw_credit: [8, 173, 134, 129, 40, 255, 134, 30]
 | `program/programs/darkdrop/src/instructions/initialize_note_pool.rs` | initialize_note_pool (creates pool + pool tree) |
 | `program/programs/darkdrop/src/instructions/deposit_to_note_pool.rs` | deposit_to_note_pool (opens credit note, constructs pool leaf) |
 | `program/programs/darkdrop/src/instructions/claim_from_note_pool.rs` | claim_from_note_pool (V3 proof, fresh credit note) |
-| `program/programs/darkdrop/src/errors.rs` | DarkDropError enum (12 variants) |
+| `program/programs/darkdrop/src/errors.rs` | DarkDropError enum (19 variants, codes 6000–6018) |
 | `program/programs/darkdrop/src/verifier.rs` | verify_proof (V1) + verify_proof_v2 (V2) + verify_proof_v3 (V3) |
 | `program/programs/darkdrop/src/vk.rs` | Triple VK: verifying_key_v1() + verifying_key_v2() + verifying_key_v3() |
 | `program/programs/darkdrop/src/poseidon.rs` | On-chain Poseidon hash (light-hasher, 2-input + 4-input) |
 | `program/programs/darkdrop/src/merkle_tree.rs` | Merkle tree append (main tree + note pool tree) |
-| `program/idl/darkdrop.json` | Hand-written IDL v0.3.0 (obfuscated names) |
-| `program/target/deploy/darkdrop.so` | Compiled program binary (451 KB) |
+| `program/idl/darkdrop.json` | Hand-written IDL v0.3.0 (obfuscated names, STALE — see KNOWN ISSUES) |
+| `program/programs/darkdrop/src/instructions/migrate_vault.rs` | migrate_vault (one-time vault realloc for obligation fields) |
+| `program/programs/darkdrop/src/instructions/revoke_drop.rs` | revoke_drop (30-day time-locked refund, preimage-verified) |
+| `program/programs/darkdrop/src/instructions/close_receipt.rs` | close_receipt (unconditional rent recovery for orphaned receipts) |
+| `program/target/deploy/darkdrop.so` | Compiled program binary (596 KB) |
 
 ### Circuits
 
@@ -845,6 +881,16 @@ withdraw_credit: [8, 173, 134, 129, 40, 255, 134, 30]
 | `scripts/relayer-test.js` | Relayer gasless claim E2E test |
 | `scripts/note-pool-test.js` | Note pool E2E test (recursive privacy flow) |
 | `scripts/note-pool-security-tests.js` | 4 note pool security tests |
+| `scripts/revoke-test.js` | Revoke E2E (deposit → wait → revoke → refund) |
+| `scripts/security-revoke-tests.js` | 11 revoke + close_receipt security tests |
+| `scripts/close-receipt-test.js` | close_receipt E2E (claim normally → close receipt → refund rent) |
+| `scripts/revoke-crossimpl-test.js` | BE endianness parity across frontend, circuit, program |
+| `scripts/legacy-create-drop-test.js` | Backward-compat check for 5-account create_drop |
+| `scripts/stress-test.js` | Multi-wallet stress test (10 deposits, 10 claims, 5 wallets/side) |
+| `scripts/migrate-vault-v2.js` | Runbook: invoke migrate_vault on existing deployment |
+| `scripts/test_poseidon_compat.js` | Poseidon parity check (JS ↔ Rust light-hasher) |
+| `scripts/generate_zero_hashes.js` | Precompute empty-tree zero hashes for Merkle init |
+| `scripts/generate-audit-pdfs.js` | Render `/audits/*.md` to PDF |
 | `scripts/export_vk_rust.js` | Convert verification_key.json to Rust constants |
 
 ### Relayer
@@ -912,6 +958,8 @@ anchor idl upgrade GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU \
 7. **Relayer deployed on Jetson behind a Cloudflare tunnel.** Production-ready for the current scale. Migration to a public VPS is not blocking.
 
 8. **Frontend does not yet surface revoke.** The `revoke_drop` instruction is live on-chain, but `/drop/create` does not yet pass the optional `depositor` + `deposit_receipt` accounts and there is no UI for listing/revoking a user's unclaimed drops. Legacy 5-account `create_drop` path remains the default until the frontend is updated.
+
+9. **IDL is stale vs deployed binary.** The hand-written IDL (`program/idl/darkdrop.json`, v0.3.0) declares 8 instructions, but the deployed program exposes 13. Missing from IDL: `create_treasury`, `admin_sweep`, `migrate_vault`, `revoke_drop`, `close_receipt`. Block explorers and Anchor-based SDK clients cannot decode calls to these instructions — the frontend hardcodes discriminators instead. Fix: regenerate the IDL to include all 13 instructions and run `anchor idl upgrade` against the deployed program.
 
 ---
 
