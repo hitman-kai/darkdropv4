@@ -58,4 +58,10 @@ pub enum DarkDropError {
 
     #[msg("A deposit receipt already exists for this leaf")]
     LeafAlreadyDeposited,
+
+    #[msg("Account size does not match any known schema version")]
+    InvalidAccountSize,
+
+    #[msg("Signer does not match the proposed new authority")]
+    PendingAuthorityMismatch,
 }

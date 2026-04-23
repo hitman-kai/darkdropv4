@@ -166,9 +166,8 @@ router.post("/", async (req: Request, res: Response) => {
         { pubkey: merkleTree, isSigner: false, isWritable: false },
         { pubkey: solVault, isSigner: false, isWritable: true },
         { pubkey: nullifierPDA, isSigner: false, isWritable: true },
-        { pubkey: recipient, isSigner: false, isWritable: true },       // NOT a signer
-        { pubkey: relayer.publicKey, isSigner: false, isWritable: true }, // fee_recipient
-        { pubkey: relayer.publicKey, isSigner: true, isWritable: true },  // payer
+        { pubkey: recipient, isSigner: false, isWritable: true },          // NOT a signer
+        { pubkey: relayer.publicKey, isSigner: true, isWritable: true },   // payer (also fee recipient after I-04)
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       ],
       data: instructionData,

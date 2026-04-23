@@ -37,8 +37,12 @@ pub fn handle_initialize_vault(ctx: Context<InitializeVault>, drop_cap: u64) -> 
     // Compute initial root (empty tree root)
     tree.current_root = ZERO_HASHES[MERKLE_DEPTH];
 
-    // Initialize root history with the empty root
-    tree.root_history[0] = tree.current_root;
+    // Initialize ALL root_history slots to the empty-tree root (closes
+    // Audit 03 L-03-NEW: previously only slot 0 was seeded, leaving slots
+    // 1..N as raw zero bytes that is_known_root would scan wastefully).
+    for i in 0..ROOT_HISTORY_SIZE {
+        tree.root_history[i] = ZERO_HASHES[MERKLE_DEPTH];
+    }
 
     msg!("DarkDrop vault initialized. Drop cap: {} lamports", drop_cap);
     Ok(())

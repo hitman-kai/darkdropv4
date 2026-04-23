@@ -306,8 +306,7 @@ export default function ClaimPage() {
             { pubkey: treasury, isSigner: false, isWritable: true },
             { pubkey: creditNotePDA, isSigner: false, isWritable: true },
             { pubkey: publicKey!, isSigner: false, isWritable: true },    // recipient
-            { pubkey: publicKey!, isSigner: false, isWritable: true },    // fee_recipient
-            { pubkey: publicKey!, isSigner: true, isWritable: true },     // payer
+            { pubkey: publicKey!, isSigner: true, isWritable: true },     // payer (also fee recipient after I-04)
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
           ],
           data: Buffer.from(withdrawData),

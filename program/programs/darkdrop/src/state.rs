@@ -3,8 +3,16 @@ use anchor_lang::prelude::*;
 // Merkle tree depth — supports 2^20 = 1,048,576 drops
 pub const MERKLE_DEPTH: usize = 20;
 
-// Number of recent roots to keep (handles concurrent drops)
-pub const ROOT_HISTORY_SIZE: usize = 30;
+// Number of recent roots to keep (handles concurrent drops).
+// Bumped from 30 → 256 in schema v2. At 15–30 deposits/day on devnet the
+// 30-slot buffer rotated in ~1–2 days, silently expiring any claim code
+// whose embedded tree snapshot aged past the window. 256 extends that to
+// ~1–2 weeks — tolerable for ordinary usage.
+pub const ROOT_HISTORY_SIZE: usize = 256;
+
+// Previous root_history capacity, used only by the schema-v2 migration
+// handler to recognise un-migrated accounts and shift bytes correctly.
+pub const ROOT_HISTORY_SIZE_V1: usize = 30;
 
 // Maximum drop amount in lamports (safety cap — 100 SOL initially)
 pub const MAX_DROP_AMOUNT: u64 = 100_000_000_000;
@@ -272,6 +280,31 @@ pub struct NotePool {
 
 impl NotePool {
     pub const SIZE: usize = 8 + 1 + 8 + 8;
+}
+
+/// PendingAuthority — sidecar PDA representing an in-flight authority
+/// rotation proposal. Invariant: at most one pending proposal per vault at
+/// a time (PDA seeds are keyed by vault, not candidate pubkey), closing
+/// the door on ghost-proposal pile-ups. Created by
+/// `propose_authority_rotation`, closed by `revoke_authority_rotation`
+/// (current authority) or `accept_authority_rotation` (new authority).
+/// PDA seeds: [b"pending_authority", vault.key()]
+#[account]
+pub struct PendingAuthority {
+    pub bump: u8,
+    pub vault: Pubkey,
+    pub proposer: Pubkey,
+    pub new_authority: Pubkey,
+    pub proposed_at: i64,
+}
+
+impl PendingAuthority {
+    pub const SIZE: usize = 8   // discriminator
+        + 1    // bump
+        + 32   // vault
+        + 32   // proposer
+        + 32   // new_authority
+        + 8;   // proposed_at
 }
 
 /// Groth16 proof data submitted by the claimer

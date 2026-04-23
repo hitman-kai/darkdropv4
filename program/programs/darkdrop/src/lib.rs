@@ -146,4 +146,30 @@ pub mod darkdrop {
     ) -> Result<()> {
         instructions::close_receipt::handle_close_receipt(ctx, leaf)
     }
+
+    /// One-time schema v2 migration: reallocate MerkleTreeAccount and
+    /// NotePoolTree to ROOT_HISTORY_SIZE=256. Idempotent per-tree.
+    pub fn migrate_schema_v2(ctx: Context<MigrateSchemaV2>) -> Result<()> {
+        instructions::migrate_schema_v2::handle_migrate_schema_v2(ctx)
+    }
+
+    /// Propose a new vault authority. Signed by current authority; opens
+    /// a single-at-a-time sidecar PDA. Does not change vault.authority.
+    pub fn propose_authority_rotation(
+        ctx: Context<ProposeAuthorityRotation>,
+        new_authority: Pubkey,
+    ) -> Result<()> {
+        instructions::authority_rotation::handle_propose_authority_rotation(ctx, new_authority)
+    }
+
+    /// Current authority withdraws its own proposal. Closes the sidecar.
+    pub fn revoke_authority_rotation(ctx: Context<RevokeAuthorityRotation>) -> Result<()> {
+        instructions::authority_rotation::handle_revoke_authority_rotation(ctx)
+    }
+
+    /// New authority accepts the proposal. Flips vault.authority and
+    /// closes the sidecar. Signer must match the proposed pubkey.
+    pub fn accept_authority_rotation(ctx: Context<AcceptAuthorityRotation>) -> Result<()> {
+        instructions::authority_rotation::handle_accept_authority_rotation(ctx)
+    }
 }

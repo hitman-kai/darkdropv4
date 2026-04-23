@@ -4,19 +4,37 @@
     "name": "darkdrop",
     "version": "0.3.0",
     "spec": "0.1.0",
-    "description": "DarkDrop V4 — Privacy-first value transfer on Solana"
+    "description": "DarkDrop V4 \u2014 Privacy-first value transfer on Solana"
   },
   "instructions": [
     {
       "name": "initialize_vault",
-      "discriminator": [48, 191, 163, 44, 71, 129, 63, 164],
+      "discriminator": [
+        48,
+        191,
+        163,
+        44,
+        71,
+        129,
+        63,
+        164
+      ],
       "accounts": [
         {
           "name": "vault",
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [118, 97, 117, 108, 116] }
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
             ]
           }
         },
@@ -25,8 +43,26 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [109, 101, 114, 107, 108, 101, 95, 116, 114, 101, 101] },
-              { "kind": "account", "path": "vault" }
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  114,
+                  107,
+                  108,
+                  101,
+                  95,
+                  116,
+                  114,
+                  101,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
             ]
           }
         },
@@ -35,7 +71,19 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [116, 114, 101, 97, 115, 117, 114, 121] }
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
             ]
           }
         },
@@ -50,19 +98,40 @@
         }
       ],
       "args": [
-        { "name": "cap", "type": "u64" }
+        {
+          "name": "cap",
+          "type": "u64"
+        }
       ]
     },
     {
       "name": "create_drop",
-      "discriminator": [157, 142, 145, 247, 92, 73, 59, 48],
+      "discriminator": [
+        157,
+        142,
+        145,
+        247,
+        92,
+        73,
+        59,
+        48
+      ],
       "accounts": [
         {
           "name": "vault",
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [118, 97, 117, 108, 116] }
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
             ]
           }
         },
@@ -71,8 +140,26 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [109, 101, 114, 107, 108, 101, 95, 116, 114, 101, 101] },
-              { "kind": "account", "path": "vault" }
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  114,
+                  107,
+                  108,
+                  101,
+                  95,
+                  116,
+                  114,
+                  101,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
             ]
           }
         },
@@ -81,7 +168,19 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [116, 114, 101, 97, 115, 117, 114, 121] }
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
             ]
           }
         },
@@ -96,22 +195,67 @@
         }
       ],
       "args": [
-        { "name": "leaf", "type": { "array": ["u8", 32] } },
-        { "name": "data", "type": "u64" },
-        { "name": "commitment", "type": { "array": ["u8", 32] } },
-        { "name": "seed", "type": { "array": ["u8", 32] } }
+        {
+          "name": "leaf",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "data",
+          "type": "u64"
+        },
+        {
+          "name": "commitment",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "seed",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
       ]
     },
     {
       "name": "claim",
-      "discriminator": [62, 198, 214, 193, 213, 159, 108, 210],
+      "discriminator": [
+        62,
+        198,
+        214,
+        193,
+        213,
+        159,
+        108,
+        210
+      ],
       "accounts": [
         {
           "name": "vault",
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [118, 97, 117, 108, 116] }
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
             ]
           }
         },
@@ -119,8 +263,26 @@
           "name": "merkle_tree",
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [109, 101, 114, 107, 108, 101, 95, 116, 114, 101, 101] },
-              { "kind": "account", "path": "vault" }
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  114,
+                  107,
+                  108,
+                  101,
+                  95,
+                  116,
+                  114,
+                  101,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
             ]
           }
         },
@@ -129,7 +291,19 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [116, 114, 101, 97, 115, 117, 114, 121] }
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
             ]
           }
         },
@@ -138,17 +312,29 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [110, 117, 108, 108, 105, 102, 105, 101, 114] },
-              { "kind": "arg", "path": "nullifier_hash" }
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  117,
+                  108,
+                  108,
+                  105,
+                  102,
+                  105,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "nullifier_hash"
+              }
             ]
           }
         },
         {
           "name": "recipient",
-          "writable": true
-        },
-        {
-          "name": "fee_recipient",
           "writable": true
         },
         {
@@ -162,25 +348,88 @@
         }
       ],
       "args": [
-        { "name": "proof", "type": { "defined": { "name": "ProofData" } } },
-        { "name": "root", "type": { "array": ["u8", 32] } },
-        { "name": "nullifier_hash", "type": { "array": ["u8", 32] } },
-        { "name": "data", "type": "u64" },
-        { "name": "commitment", "type": { "array": ["u8", 32] } },
-        { "name": "seed", "type": { "array": ["u8", 32] } },
-        { "name": "params", "type": "u64" }
+        {
+          "name": "proof",
+          "type": {
+            "defined": {
+              "name": "ProofData"
+            }
+          }
+        },
+        {
+          "name": "root",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "nullifier_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "data",
+          "type": "u64"
+        },
+        {
+          "name": "commitment",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "seed",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "params",
+          "type": "u64"
+        }
       ]
     },
     {
       "name": "claim_credit",
-      "discriminator": [190, 242, 172, 79, 29, 82, 22, 163],
+      "discriminator": [
+        190,
+        242,
+        172,
+        79,
+        29,
+        82,
+        22,
+        163
+      ],
       "accounts": [
         {
           "name": "vault",
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [118, 97, 117, 108, 116] }
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
             ]
           }
         },
@@ -188,8 +437,26 @@
           "name": "merkle_tree",
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [109, 101, 114, 107, 108, 101, 95, 116, 114, 101, 101] },
-              { "kind": "account", "path": "vault" }
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  114,
+                  107,
+                  108,
+                  101,
+                  95,
+                  116,
+                  114,
+                  101,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
             ]
           }
         },
@@ -198,8 +465,21 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [99, 114, 101, 100, 105, 116] },
-              { "kind": "arg", "path": "nullifier_hash" }
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  114,
+                  101,
+                  100,
+                  105,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "nullifier_hash"
+              }
             ]
           }
         },
@@ -208,8 +488,24 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [110, 117, 108, 108, 105, 102, 105, 101, 114] },
-              { "kind": "arg", "path": "nullifier_hash" }
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  117,
+                  108,
+                  108,
+                  105,
+                  102,
+                  105,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "nullifier_hash"
+              }
             ]
           }
         },
@@ -227,22 +523,66 @@
         }
       ],
       "args": [
-        { "name": "nullifier_hash", "type": { "array": ["u8", 32] } },
-        { "name": "proof", "type": { "defined": { "name": "ProofData" } } },
-        { "name": "inputs", "type": "bytes" },
-        { "name": "nonce", "type": { "array": ["u8", 32] } }
+        {
+          "name": "nullifier_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "proof",
+          "type": {
+            "defined": {
+              "name": "ProofData"
+            }
+          }
+        },
+        {
+          "name": "inputs",
+          "type": "bytes"
+        },
+        {
+          "name": "nonce",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
       ]
     },
     {
       "name": "withdraw_credit",
-      "discriminator": [8, 173, 134, 129, 40, 255, 134, 30],
+      "discriminator": [
+        8,
+        173,
+        134,
+        129,
+        40,
+        255,
+        134,
+        30
+      ],
       "accounts": [
         {
           "name": "vault",
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [118, 97, 117, 108, 116] }
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
             ]
           }
         },
@@ -251,7 +591,19 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [116, 114, 101, 97, 115, 117, 114, 121] }
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
             ]
           }
         },
@@ -260,17 +612,26 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [99, 114, 101, 100, 105, 116] },
-              { "kind": "arg", "path": "nullifier_hash" }
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  114,
+                  101,
+                  100,
+                  105,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "nullifier_hash"
+              }
             ]
           }
         },
         {
           "name": "recipient",
-          "writable": true
-        },
-        {
-          "name": "fee_recipient",
           "writable": true
         },
         {
@@ -284,20 +645,52 @@
         }
       ],
       "args": [
-        { "name": "nullifier_hash", "type": { "array": ["u8", 32] } },
-        { "name": "opening", "type": "bytes" },
-        { "name": "rate", "type": "u16" }
+        {
+          "name": "nullifier_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "opening",
+          "type": "bytes"
+        },
+        {
+          "name": "rate",
+          "type": "u16"
+        }
       ]
     },
     {
       "name": "initialize_note_pool",
-      "discriminator": [155, 81, 109, 95, 7, 142, 2, 199],
+      "discriminator": [
+        155,
+        81,
+        109,
+        95,
+        7,
+        142,
+        2,
+        199
+      ],
       "accounts": [
         {
           "name": "vault",
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [118, 97, 117, 108, 116] }
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
             ]
           }
         },
@@ -306,7 +699,20 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [110, 111, 116, 101, 95, 112, 111, 111, 108] }
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  116,
+                  101,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
             ]
           }
         },
@@ -315,8 +721,29 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [110, 111, 116, 101, 95, 112, 111, 111, 108, 95, 116, 114, 101, 101] },
-              { "kind": "account", "path": "vault" }
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  116,
+                  101,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  116,
+                  114,
+                  101,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
             ]
           }
         },
@@ -334,13 +761,31 @@
     },
     {
       "name": "deposit_to_note_pool",
-      "discriminator": [185, 144, 159, 128, 240, 90, 234, 156],
+      "discriminator": [
+        185,
+        144,
+        159,
+        128,
+        240,
+        90,
+        234,
+        156
+      ],
       "accounts": [
         {
           "name": "vault",
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [118, 97, 117, 108, 116] }
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
             ]
           }
         },
@@ -349,7 +794,20 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [110, 111, 116, 101, 95, 112, 111, 111, 108] }
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  116,
+                  101,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
             ]
           }
         },
@@ -358,8 +816,29 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [110, 111, 116, 101, 95, 112, 111, 111, 108, 95, 116, 114, 101, 101] },
-              { "kind": "account", "path": "vault" }
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  116,
+                  101,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  116,
+                  114,
+                  101,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
             ]
           }
         },
@@ -368,8 +847,21 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [99, 114, 101, 100, 105, 116] },
-              { "kind": "arg", "path": "nullifier_hash" }
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  114,
+                  101,
+                  100,
+                  105,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "nullifier_hash"
+              }
             ]
           }
         },
@@ -387,20 +879,52 @@
         }
       ],
       "args": [
-        { "name": "nullifier_hash", "type": { "array": ["u8", 32] } },
-        { "name": "data", "type": "bytes" },
-        { "name": "params", "type": "bytes" }
+        {
+          "name": "nullifier_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "data",
+          "type": "bytes"
+        },
+        {
+          "name": "params",
+          "type": "bytes"
+        }
       ]
     },
     {
       "name": "claim_from_note_pool",
-      "discriminator": [253, 6, 222, 21, 191, 226, 43, 142],
+      "discriminator": [
+        253,
+        6,
+        222,
+        21,
+        191,
+        226,
+        43,
+        142
+      ],
       "accounts": [
         {
           "name": "vault",
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [118, 97, 117, 108, 116] }
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
             ]
           }
         },
@@ -409,7 +933,20 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [110, 111, 116, 101, 95, 112, 111, 111, 108] }
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  116,
+                  101,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
             ]
           }
         },
@@ -417,8 +954,29 @@
           "name": "pool_tree",
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [110, 111, 116, 101, 95, 112, 111, 111, 108, 95, 116, 114, 101, 101] },
-              { "kind": "account", "path": "vault" }
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  116,
+                  101,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  116,
+                  114,
+                  101,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
             ]
           }
         },
@@ -427,8 +985,21 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [99, 114, 101, 100, 105, 116] },
-              { "kind": "arg", "path": "pool_nullifier_hash" }
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  114,
+                  101,
+                  100,
+                  105,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "pool_nullifier_hash"
+              }
             ]
           }
         },
@@ -437,8 +1008,29 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [112, 111, 111, 108, 95, 110, 117, 108, 108, 105, 102, 105, 101, 114] },
-              { "kind": "arg", "path": "pool_nullifier_hash" }
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  110,
+                  117,
+                  108,
+                  108,
+                  105,
+                  102,
+                  105,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "pool_nullifier_hash"
+              }
             ]
           }
         },
@@ -456,77 +1048,601 @@
         }
       ],
       "args": [
-        { "name": "pool_nullifier_hash", "type": { "array": ["u8", 32] } },
-        { "name": "proof", "type": { "defined": { "name": "ProofData" } } },
-        { "name": "inputs", "type": "bytes" }
+        {
+          "name": "pool_nullifier_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "proof",
+          "type": {
+            "defined": {
+              "name": "ProofData"
+            }
+          }
+        },
+        {
+          "name": "inputs",
+          "type": "bytes"
+        }
       ]
+    },
+    {
+      "name": "migrate_schema_v2",
+      "discriminator": [
+        169,
+        82,
+        231,
+        138,
+        226,
+        218,
+        110,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "merkle_tree",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  114,
+                  107,
+                  108,
+                  101,
+                  95,
+                  116,
+                  114,
+                  101,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "note_pool_tree",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  116,
+                  101,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  116,
+                  114,
+                  101,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "propose_authority_rotation",
+      "discriminator": [
+        185,
+        202,
+        177,
+        179,
+        135,
+        170,
+        62,
+        115
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pending_authority",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "new_authority",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "revoke_authority_rotation",
+      "discriminator": [
+        20,
+        250,
+        65,
+        1,
+        7,
+        141,
+        159,
+        100
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pending_authority",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "accept_authority_rotation",
+      "discriminator": [
+        197,
+        155,
+        6,
+        45,
+        79,
+        0,
+        106,
+        66
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pending_authority",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "new_authority",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": []
     }
   ],
   "accounts": [
     {
       "name": "Vault",
-      "discriminator": [211, 8, 232, 43, 2, 152, 117, 119]
+      "discriminator": [
+        211,
+        8,
+        232,
+        43,
+        2,
+        152,
+        117,
+        119
+      ]
     },
     {
       "name": "Treasury",
-      "discriminator": [238, 239, 123, 238, 89, 1, 168, 253]
+      "discriminator": [
+        238,
+        239,
+        123,
+        238,
+        89,
+        1,
+        168,
+        253
+      ]
     },
     {
       "name": "NullifierAccount",
-      "discriminator": [250, 31, 238, 177, 213, 98, 48, 172]
+      "discriminator": [
+        250,
+        31,
+        238,
+        177,
+        213,
+        98,
+        48,
+        172
+      ]
     },
     {
       "name": "CreditNote",
-      "discriminator": [227, 76, 104, 33, 171, 126, 61, 232]
+      "discriminator": [
+        227,
+        76,
+        104,
+        33,
+        171,
+        126,
+        61,
+        232
+      ]
     },
     {
       "name": "NotePool",
-      "discriminator": [0, 0, 0, 0, 0, 0, 0, 0]
+      "discriminator": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
     },
     {
       "name": "PoolNullifierAccount",
-      "discriminator": [0, 0, 0, 0, 0, 0, 0, 0]
+      "discriminator": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "PendingAuthority",
+      "discriminator": [
+        108,
+        91,
+        208,
+        174,
+        216,
+        189,
+        207,
+        93
+      ]
     }
   ],
   "events": [
     {
       "name": "DropCreated",
-      "discriminator": [179, 166, 43, 166, 63, 69, 138, 46]
+      "discriminator": [
+        179,
+        166,
+        43,
+        166,
+        63,
+        69,
+        138,
+        46
+      ]
     },
     {
       "name": "CreditCreated",
-      "discriminator": [0, 0, 0, 0, 0, 0, 0, 0]
+      "discriminator": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
     },
     {
       "name": "CreditWithdrawn",
-      "discriminator": [0, 0, 0, 0, 0, 0, 0, 0]
+      "discriminator": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
     },
     {
       "name": "NotePoolDeposit",
-      "discriminator": [0, 0, 0, 0, 0, 0, 0, 0]
+      "discriminator": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
     },
     {
       "name": "NotePoolClaim",
-      "discriminator": [0, 0, 0, 0, 0, 0, 0, 0]
+      "discriminator": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
     },
     {
       "name": "TreasurySweep",
-      "discriminator": [0, 0, 0, 0, 0, 0, 0, 0]
+      "discriminator": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
     }
   ],
   "errors": [
-    { "code": 6000, "name": "TreeFull", "msg": "Merkle tree is full" },
-    { "code": 6001, "name": "InvalidRoot", "msg": "Invalid Merkle root" },
-    { "code": 6002, "name": "NullifierAlreadySpent", "msg": "Nullifier already spent" },
-    { "code": 6003, "name": "InvalidProof", "msg": "Invalid proof" },
-    { "code": 6004, "name": "ExceedsCap", "msg": "Exceeds cap" },
-    { "code": 6005, "name": "ZeroValue", "msg": "Zero value" },
-    { "code": 6006, "name": "Overflow", "msg": "Overflow" },
-    { "code": 6007, "name": "InsufficientBalance", "msg": "Insufficient balance" },
-    { "code": 6008, "name": "RateTooHigh", "msg": "Rate too high" },
-    { "code": 6009, "name": "CommitmentMismatch", "msg": "Commitment mismatch" },
-    { "code": 6010, "name": "Unauthorized", "msg": "Unauthorized" },
-    { "code": 6011, "name": "InvalidInputLength", "msg": "Invalid input length" }
+    {
+      "code": 6000,
+      "name": "TreeFull",
+      "msg": "Merkle tree is full"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidRoot",
+      "msg": "Invalid Merkle root"
+    },
+    {
+      "code": 6002,
+      "name": "NullifierAlreadySpent",
+      "msg": "Nullifier already spent"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidProof",
+      "msg": "Invalid proof"
+    },
+    {
+      "code": 6004,
+      "name": "ExceedsCap",
+      "msg": "Exceeds cap"
+    },
+    {
+      "code": 6005,
+      "name": "ZeroValue",
+      "msg": "Zero value"
+    },
+    {
+      "code": 6006,
+      "name": "Overflow",
+      "msg": "Overflow"
+    },
+    {
+      "code": 6007,
+      "name": "InsufficientBalance",
+      "msg": "Insufficient balance"
+    },
+    {
+      "code": 6008,
+      "name": "RateTooHigh",
+      "msg": "Rate too high"
+    },
+    {
+      "code": 6009,
+      "name": "CommitmentMismatch",
+      "msg": "Commitment mismatch"
+    },
+    {
+      "code": 6010,
+      "name": "Unauthorized",
+      "msg": "Unauthorized"
+    },
+    {
+      "code": 6011,
+      "name": "InvalidInputLength",
+      "msg": "Invalid input length"
+    },
+    {
+      "code": 6019,
+      "name": "InvalidAccountSize",
+      "msg": "Account size does not match any known schema version"
+    },
+    {
+      "code": 6020,
+      "name": "PendingAuthorityMismatch",
+      "msg": "Signer does not match the proposed new authority"
+    }
   ],
   "types": [
     {
@@ -534,9 +1650,33 @@
       "type": {
         "kind": "struct",
         "fields": [
-          { "name": "proof_a", "type": { "array": ["u8", 64] } },
-          { "name": "proof_b", "type": { "array": ["u8", 128] } },
-          { "name": "proof_c", "type": { "array": ["u8", 64] } }
+          {
+            "name": "proof_a",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "proof_b",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          },
+          {
+            "name": "proof_c",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
         ]
       }
     },
@@ -545,14 +1685,38 @@
       "type": {
         "kind": "struct",
         "fields": [
-          { "name": "bump", "type": "u8" },
-          { "name": "authority", "type": "pubkey" },
-          { "name": "total_drops", "type": "u64" },
-          { "name": "total_claims", "type": "u64" },
-          { "name": "cap", "type": "u64" },
-          { "name": "merkle_tree", "type": "pubkey" },
-          { "name": "total_deposited", "type": "u64" },
-          { "name": "total_withdrawn", "type": "u64" }
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_drops",
+            "type": "u64"
+          },
+          {
+            "name": "total_claims",
+            "type": "u64"
+          },
+          {
+            "name": "cap",
+            "type": "u64"
+          },
+          {
+            "name": "merkle_tree",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_deposited",
+            "type": "u64"
+          },
+          {
+            "name": "total_withdrawn",
+            "type": "u64"
+          }
         ]
       }
     },
@@ -561,7 +1725,10 @@
       "type": {
         "kind": "struct",
         "fields": [
-          { "name": "bump", "type": "u8" }
+          {
+            "name": "bump",
+            "type": "u8"
+          }
         ]
       }
     },
@@ -570,7 +1737,15 @@
       "type": {
         "kind": "struct",
         "fields": [
-          { "name": "nullifier_hash", "type": { "array": ["u8", 32] } }
+          {
+            "name": "nullifier_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
         ]
       }
     },
@@ -579,12 +1754,45 @@
       "type": {
         "kind": "struct",
         "fields": [
-          { "name": "bump", "type": "u8" },
-          { "name": "recipient", "type": "pubkey" },
-          { "name": "commitment", "type": { "array": ["u8", 32] } },
-          { "name": "nullifier_hash", "type": { "array": ["u8", 32] } },
-          { "name": "nonce", "type": { "array": ["u8", 32] } },
-          { "name": "created_at", "type": "i64" }
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "commitment",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "nullifier_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "nonce",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          }
         ]
       }
     },
@@ -593,9 +1801,18 @@
       "type": {
         "kind": "struct",
         "fields": [
-          { "name": "bump", "type": "u8" },
-          { "name": "total_deposits", "type": "u64" },
-          { "name": "total_claims", "type": "u64" }
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "total_deposits",
+            "type": "u64"
+          },
+          {
+            "name": "total_claims",
+            "type": "u64"
+          }
         ]
       }
     },
@@ -604,7 +1821,15 @@
       "type": {
         "kind": "struct",
         "fields": [
-          { "name": "nullifier_hash", "type": { "array": ["u8", 32] } }
+          {
+            "name": "nullifier_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
         ]
       }
     }

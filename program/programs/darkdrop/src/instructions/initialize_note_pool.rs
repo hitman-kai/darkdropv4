@@ -19,7 +19,11 @@ pub fn handle_initialize_note_pool(ctx: Context<InitializeNotePool>) -> Result<(
     }
 
     tree.current_root = ZERO_HASHES[MERKLE_DEPTH];
-    tree.root_history[0] = tree.current_root;
+
+    // Initialize ALL root_history slots (closes Audit 04 L-01).
+    for i in 0..ROOT_HISTORY_SIZE {
+        tree.root_history[i] = ZERO_HASHES[MERKLE_DEPTH];
+    }
 
     msg!("Note pool initialized");
     Ok(())

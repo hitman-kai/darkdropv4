@@ -11,6 +11,8 @@ pub mod deposit_to_note_pool;
 pub mod claim_from_note_pool;
 pub mod revoke_drop;
 pub mod close_receipt;
+pub mod migrate_schema_v2;
+pub mod authority_rotation;
 
 pub use initialize::*;
 pub use create_drop::*;
@@ -25,3 +27,5 @@ pub use deposit_to_note_pool::*;
 pub use claim_from_note_pool::*;
 pub use revoke_drop::*;
 pub use close_receipt::*;
+pub use migrate_schema_v2::*;
+pub use authority_rotation::*;

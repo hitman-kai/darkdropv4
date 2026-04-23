@@ -63,11 +63,14 @@ pub fn handle_claim(
     let recipient_amount = amount.checked_sub(fee_lamports)
         .ok_or(DarkDropError::Overflow)?;
 
-    // Direct lamport manipulation — no CPI, no inner instruction
+    // Direct lamport manipulation — no CPI, no inner instruction.
+    // The fee goes to `payer` directly: per Audit 03 H-01, `fee_recipient`
+    // was constrained to equal payer, so a separate account added no
+    // security and one wasted slot (I-04 fix).
     **ctx.accounts.treasury.to_account_info().try_borrow_mut_lamports()? -= amount;
     **ctx.accounts.recipient.to_account_info().try_borrow_mut_lamports()? += recipient_amount;
     if fee_lamports > 0 {
-        **ctx.accounts.fee_recipient.to_account_info().try_borrow_mut_lamports()? += fee_lamports;
+        **ctx.accounts.payer.to_account_info().try_borrow_mut_lamports()? += fee_lamports;
     }
 
     // Update vault stats
@@ -156,11 +159,8 @@ pub struct Claim<'info> {
     #[account(mut)]
     pub recipient: UncheckedAccount<'info>,
 
-    /// CHECK: Fee recipient — must be the payer (signer) to prevent fee diversion.
-    #[account(mut, constraint = fee_recipient.key() == payer.key())]
-    pub fee_recipient: UncheckedAccount<'info>,
-
     /// Fee payer — the relayer (gasless) or the claimer (direct).
+    /// Also receives the fee when fee_lamports > 0.
     #[account(mut)]
     pub payer: Signer<'info>,
 

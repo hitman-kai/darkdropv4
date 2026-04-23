@@ -245,8 +245,7 @@ router.post("/withdraw", async (req: Request, res: Response) => {
         { pubkey: treasury, isSigner: false, isWritable: true },
         { pubkey: creditNotePDA, isSigner: false, isWritable: true },
         { pubkey: recipient, isSigner: false, isWritable: true },
-        { pubkey: relayer.publicKey, isSigner: false, isWritable: true },   // fee_recipient
-        { pubkey: relayer.publicKey, isSigner: true, isWritable: true },    // payer
+        { pubkey: relayer.publicKey, isSigner: true, isWritable: true },    // payer (also fee recipient after I-04)
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       ],
       data: instructionData,

@@ -94,9 +94,10 @@ pub fn handle_withdraw_credit(
     // Credit recipient
     **ctx.accounts.recipient.to_account_info().try_borrow_mut_lamports()? += recipient_amount;
 
-    // Credit fee_recipient (if fee > 0)
+    // Credit the fee to payer (I-04: fee_recipient was constrained to equal
+    // payer since Audit 03, making it a redundant account slot).
     if fee > 0 {
-        **ctx.accounts.fee_recipient.to_account_info().try_borrow_mut_lamports()? += fee;
+        **ctx.accounts.payer.to_account_info().try_borrow_mut_lamports()? += fee;
     }
 
     // Track total withdrawn for sweep limit enforcement
@@ -149,10 +150,6 @@ pub struct WithdrawCredit<'info> {
     /// CHECK: Recipient — must match credit_note.recipient
     #[account(mut)]
     pub recipient: UncheckedAccount<'info>,
-
-    /// CHECK: Fee recipient — must be the payer (signer) to prevent fee diversion.
-    #[account(mut, constraint = fee_recipient.key() == payer.key())]
-    pub fee_recipient: UncheckedAccount<'info>,
 
     #[account(mut)]
     pub payer: Signer<'info>,
