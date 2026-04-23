@@ -27,6 +27,7 @@ import {
   buildProofFromSnapshot,
   decodeTreeSnapshot,
 } from "@/lib/merkle";
+import { sendWithRetry } from "@/lib/send-with-retry";
 import {
   PROGRAM_ID,
   getVaultPDA,
@@ -278,8 +279,11 @@ export default function ClaimPage() {
           ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
           claimCreditIx
         );
-        const sig1 = await sendTransaction!(tx1, connection);
-        await connection.confirmTransaction(sig1, "confirmed");
+        const sig1 = await sendWithRetry({
+          wallet: { sendTransaction: sendTransaction! },
+          connection,
+          transaction: tx1,
+        });
 
         // TX 2: withdraw_credit (SOL moves via direct lamport manipulation)
         setStage("withdrawing");

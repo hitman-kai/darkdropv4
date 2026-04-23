@@ -259,24 +259,40 @@ export class IncrementalMerkleTree {
 
 // ─── tree snapshot (for embedding in claim codes) ──────────────────
 
+// Account layouts:
+//   v1 (ROOT_HISTORY_SIZE=30):  1680 bytes. filled_subtrees at offset 1040.
+//   v2 (ROOT_HISTORY_SIZE=256): 8912 bytes. filled_subtrees at offset 8272.
+// Detected via account data length so reads are correct across the
+// deploy → migrate_schema_v2 window where the two layouts coexist.
 const TREE_ACCOUNT_ROOT_OFFSET = 8 + 32 + 4 + 4; // 48
-const TREE_ACCOUNT_FILLED_SUBTREES_OFFSET =
-  TREE_ACCOUNT_ROOT_OFFSET + 32 + 30 * 32; // root + root_history
+
+const TREE_LAYOUT_V1 = { size: 1680, rootHistorySize: 30, filledSubtreesOffset: 48 + 32 + 30 * 32 };
+const TREE_LAYOUT_V2 = { size: 8912, rootHistorySize: 256, filledSubtreesOffset: 48 + 32 + 256 * 32 };
+
+function detectTreeLayout(treeData: Uint8Array) {
+  if (treeData.length === TREE_LAYOUT_V2.size) return TREE_LAYOUT_V2;
+  if (treeData.length === TREE_LAYOUT_V1.size) return TREE_LAYOUT_V1;
+  throw new Error(
+    `Unrecognized MerkleTree account size: ${treeData.length} (expected ${TREE_LAYOUT_V1.size} or ${TREE_LAYOUT_V2.size})`
+  );
+}
 
 /**
  * Read the merkle tree account data and snapshot root + filled_subtrees
  * into a 672-byte blob (base64url-encoded). Use this immediately after a
  * successful create_drop to embed in the claim code — no RPC scanning
- * needed at claim time.
+ * needed at claim time. Tolerant of both v1 (30-slot) and v2 (256-slot)
+ * root_history layouts.
  */
 export function snapshotTreeAccount(treeData: Uint8Array): string {
+  const layout = detectTreeLayout(treeData);
   const buf = new Uint8Array(32 + 20 * 32);
   buf.set(treeData.subarray(TREE_ACCOUNT_ROOT_OFFSET, TREE_ACCOUNT_ROOT_OFFSET + 32), 0);
   for (let i = 0; i < MERKLE_DEPTH; i++) {
     buf.set(
       treeData.subarray(
-        TREE_ACCOUNT_FILLED_SUBTREES_OFFSET + i * 32,
-        TREE_ACCOUNT_FILLED_SUBTREES_OFFSET + (i + 1) * 32
+        layout.filledSubtreesOffset + i * 32,
+        layout.filledSubtreesOffset + (i + 1) * 32
       ),
       32 + i * 32
     );

@@ -1,0 +1,25 @@
+{
+  "program_id": "GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU",
+  "cluster": "devnet",
+  "captured_at": "2026-04-23T03:32:09.092Z",
+  "accounts": {
+    "vault": {
+      "address": "3ioMEKQvKnLaR8JFQUgsNFDby9Xi89M5MWZXNzdUJZoG",
+      "size": 113,
+      "lamports": 1677360,
+      "present": true
+    },
+    "merkle_tree": {
+      "address": "2rvpifNShofeGz1BqJHeVPHoyvm43fYpcU5vtgozLrA2",
+      "size": 1680,
+      "lamports": 12583680,
+      "present": true
+    },
+    "note_pool_tree": {
+      "address": "24MghqZfrn5mg4LCBX8L7FdUovtB4RKrYB5kLoYu3vHF",
+      "size": 1680,
+      "lamports": 12583680,
+      "present": true
+    }
+  }
+}

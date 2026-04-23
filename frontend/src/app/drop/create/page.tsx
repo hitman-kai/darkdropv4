@@ -20,6 +20,7 @@ import {
 import { encodeClaimCode } from "@/lib/claim-code";
 import { snapshotTreeAccount } from "@/lib/merkle";
 import { RELAYER_URL, checkRelayerHealth } from "@/lib/relayer";
+import { sendWithRetry } from "@/lib/send-with-retry";
 import {
   getReceiptPDA,
   saveReceipt,
@@ -180,8 +181,11 @@ export default function CreateDropPage() {
         });
 
         const tx = new Transaction().add(createDropIx);
-        sig = await sendTransaction(tx, connection);
-        await connection.confirmTransaction(sig, "confirmed");
+        sig = await sendWithRetry({
+          wallet: { sendTransaction },
+          connection,
+          transaction: tx,
+        });
       }
 
       // Read the leaf index from the on-chain Merkle tree AND snapshot
