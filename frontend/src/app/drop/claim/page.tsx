@@ -21,13 +21,19 @@ import {
   bytes32BEToBigint,
 } from "@/lib/crypto";
 import { decodeClaimCode } from "@/lib/claim-code";
-import { generateClaimProofV2 } from "@/lib/proof";
+import { generateClaimProofV2, generateClaimProofV3 } from "@/lib/proof";
 import {
   IncrementalMerkleTree,
   buildProofFromSnapshot,
   decodeTreeSnapshot,
 } from "@/lib/merkle";
 import { sendWithRetry } from "@/lib/send-with-retry";
+import {
+  buildClaimFromNotePoolIx,
+  getNotePoolTreePDA,
+  getPoolCreditNotePDA,
+} from "@/lib/note-pool";
+import { randomFieldElement } from "@/lib/crypto";
 import {
   PROGRAM_ID,
   getVaultPDA,
@@ -113,8 +119,9 @@ export default function ClaimPage() {
         claimCode,
         (encryption === "aes" || encryption === "pbkdf2") ? password : undefined
       );
-      const { secret, nullifier, amount, blindingFactor, leafIndex, pathSnapshot } =
+      const { secret, nullifier, amount, blindingFactor, leafIndex, pathSnapshot, flavor } =
         decoded.payload;
+      const isPool = flavor === "pool";
 
       const amountSol = Number(amount) / 1e9;
 
@@ -138,6 +145,11 @@ export default function ClaimPage() {
 
       const [vault] = getVaultPDA();
       const [merkleTree] = getMerkleTreePDA(vault);
+      const [notePoolTree] = getNotePoolTreePDA(vault);
+      // Pool-flavored codes carry a snapshot of note_pool_tree; standard
+      // codes carry a snapshot of merkle_tree. Same on-chain struct layout,
+      // different PDA source.
+      const treePdaForFlavor = isPool ? notePoolTree : merkleTree;
 
       let pathElements: bigint[];
       let pathIndices: number[];
@@ -152,7 +164,7 @@ export default function ClaimPage() {
       } else {
         const proof = await IncrementalMerkleTree.fromOnChainEvents(
           connection,
-          merkleTree,
+          treePdaForFlavor,
           leafIndex
         );
         pathElements = proof.pathElements;
@@ -162,61 +174,123 @@ export default function ClaimPage() {
 
       const onChainRoot = bigintToBytes32BE(merkleRootBigInt);
 
-      // Step 3: Generate ZK proof (V2 — amount is PRIVATE)
+      // Step 3: Generate ZK proof (V2 standard, V3 for pool flavor)
       setStage("proving");
 
-      const proofResult = await generateClaimProofV2(
-        { secret, nullifier, amount, blindingFactor, password: pwdBigint },
-        { pathElements, pathIndices, root: merkleRootBigInt },
-        publicKey!,
-        nullHash,
-        amtCommitment,
-        pwdHash
-      );
+      // Pool flavor generates fresh (blinding, salt) for the new CreditNote
+      // that claim_from_note_pool will create — must be used in the
+      // subsequent withdraw opening. Standard flavor keeps the code's
+      // original blinding and picks a random salt.
+      let nullifierHashBytes: Uint8Array;
+      let opaqueInputs: Uint8Array;
+      let saltBytes: Uint8Array;
+      let withdrawBlinding: bigint;
+      let poolV3Result: Awaited<ReturnType<typeof generateClaimProofV3>> | null = null;
+      // V2 result populated only on standard flavor
+      let v2ProofResult: Awaited<ReturnType<typeof generateClaimProofV2>> | null = null;
 
-      // Step 4: Submit claim_credit
+      if (isPool) {
+        // V3 circuit: pool_secret/nullifier/blinding as the payload's
+        // secret/nullifier/blindingFactor fields (semantic reuse).
+        const newBlinding = randomFieldElement();
+        const newSalt = randomFieldElement();
+        const poolNullifierHashBig = computeNullifierHash(nullifier);
+        poolV3Result = await generateClaimProofV3(
+          {
+            poolSecret: secret,
+            poolNullifier: nullifier,
+            poolBlinding: blindingFactor,
+            amount,
+          },
+          { pathElements, pathIndices, root: merkleRootBigInt },
+          publicKey!,
+          poolNullifierHashBig,
+          newBlinding,
+          newSalt
+        );
+        nullifierHashBytes = poolV3Result.poolNullifierHash;
+        // Pool claim ix opaque inputs: pool_root(32) + new_stored_commitment(32)
+        opaqueInputs = new Uint8Array(64);
+        opaqueInputs.set(poolV3Result.poolMerkleRoot, 0);
+        opaqueInputs.set(poolV3Result.newStoredCommitment, 32);
+        saltBytes = bigintToBytes32BE(newSalt);
+        withdrawBlinding = newBlinding;
+      } else {
+        v2ProofResult = await generateClaimProofV2(
+          { secret, nullifier, amount, blindingFactor, password: pwdBigint },
+          { pathElements, pathIndices, root: merkleRootBigInt },
+          publicKey!,
+          nullHash,
+          amtCommitment,
+          pwdHash
+        );
+        nullifierHashBytes = bigintToBytes32BE(nullHash);
+        opaqueInputs = new Uint8Array(96);
+        opaqueInputs.set(onChainRoot, 0);
+        opaqueInputs.set(v2ProofResult.amountCommitment, 32);
+        opaqueInputs.set(v2ProofResult.passwordHash, 64);
+        // Random salt mod Fr — Poseidon panics on out-of-range inputs
+        const BN254_FR = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+        const saltRaw = crypto.getRandomValues(new Uint8Array(32));
+        const saltReduced = bytes32BEToBigint(saltRaw) % BN254_FR;
+        saltBytes = bigintToBytes32BE(saltReduced);
+        withdrawBlinding = blindingFactor;
+      }
+
       setStage("claiming");
 
-      const nullifierHashBytes = bigintToBytes32BE(nullHash);
       const [nullifierPDA] = getNullifierPDA(nullifierHashBytes);
-      const [creditNotePDA] = getCreditNotePDA(nullifierHashBytes);
+      const [creditNotePDA] = isPool
+        ? getPoolCreditNotePDA(nullifierHashBytes)
+        : getCreditNotePDA(nullifierHashBytes);
       const [treasury] = getTreasuryPDA();
 
-      // Pack opaque inputs: merkle_root(32) + commitment(32) + seed(32)
-      const opaqueInputs = new Uint8Array(96);
-      opaqueInputs.set(onChainRoot, 0);
-      opaqueInputs.set(proofResult.amountCommitment, 32);
-      opaqueInputs.set(proofResult.passwordHash, 64);
-
-      // Generate random salt for commitment re-randomization (privacy: prevents deposit→claim linkage)
-      // Reduce modulo BN254 scalar field prime so Poseidon never panics with InvalidParameters
-      const BN254_FR = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
-      const saltRaw = crypto.getRandomValues(new Uint8Array(32));
-      const saltReduced = bytes32BEToBigint(saltRaw) % BN254_FR;
-      const saltBytes = bigintToBytes32BE(saltReduced);
-
-      // Pack opaque opening: amount(8 LE) + blinding_factor(32) + salt(32)
+      // Withdraw opening: amount(8 LE) + blinding(32) + salt(32). Pool uses
+      // the fresh (new_blinding, new_salt) produced by the V3 proof; standard
+      // uses the code's blinding plus the random salt we generated above.
       const openingBuf = new Uint8Array(72);
       new DataView(openingBuf.buffer).setBigUint64(0, amount, true);
-      openingBuf.set(bigintToBytes32BE(blindingFactor), 8);
+      openingBuf.set(bigintToBytes32BE(withdrawBlinding), 8);
       openingBuf.set(saltBytes, 40);
 
+      // Flavor-independent proof bytes for downstream ix construction.
+      const proofBytes = isPool
+        ? { proofA: poolV3Result!.proofA, proofB: poolV3Result!.proofB, proofC: poolV3Result!.proofC }
+        : { proofA: v2ProofResult!.proofA, proofB: v2ProofResult!.proofB, proofC: v2ProofResult!.proofC };
+
       if (claimMode === "relayer") {
-        // Send claim_credit via relayer
-        const claimResp = await fetch(`${RELAYER_URL}/api/relay/credit/claim`, {
+        // Send claim via relayer. Pool flavor uses a different endpoint
+        // because the V3 ix takes fewer public inputs (no separate salt
+        // argument — it's baked into the proof commitment).
+        const claimEndpoint = isPool
+          ? `${RELAYER_URL}/api/relay/pool/claim`
+          : `${RELAYER_URL}/api/relay/credit/claim`;
+        const claimBody = isPool
+          ? {
+              proof: {
+                proofA: Array.from(proofBytes.proofA),
+                proofB: Array.from(proofBytes.proofB),
+                proofC: Array.from(proofBytes.proofC),
+              },
+              poolNullifierHash: Array.from(nullifierHashBytes),
+              recipient: publicKey!.toBase58(),
+              inputs: Array.from(opaqueInputs),
+            }
+          : {
+              proof: {
+                proofA: Array.from(proofBytes.proofA),
+                proofB: Array.from(proofBytes.proofB),
+                proofC: Array.from(proofBytes.proofC),
+              },
+              nullifierHash: Array.from(nullifierHashBytes),
+              recipient: publicKey!.toBase58(),
+              inputs: Array.from(opaqueInputs),
+              salt: Array.from(saltBytes),
+            };
+        const claimResp = await fetch(claimEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            proof: {
-              proofA: Array.from(proofResult.proofA),
-              proofB: Array.from(proofResult.proofB),
-              proofC: Array.from(proofResult.proofC),
-            },
-            nullifierHash: Array.from(nullifierHashBytes),
-            recipient: publicKey!.toBase58(),
-            inputs: Array.from(opaqueInputs),
-            salt: Array.from(saltBytes),
-          }),
+          body: JSON.stringify(claimBody),
         });
         const claimResult = await claimResp.json();
         if (!claimResp.ok) throw new Error(claimResult.error || "Relayer rejected claim");
@@ -244,40 +318,52 @@ export default function ClaimPage() {
       } else {
         // Direct claim: two TXs from wallet
 
-        // TX 1: claim_credit (no SOL moves, ZK proof verified)
-        const inputsLenBuf = new Uint8Array(4);
-        new DataView(inputsLenBuf.buffer).setUint32(0, 96, true);
-
-        const claimCreditData = new Uint8Array(
-          8 + 32 + 64 + 128 + 64 + 4 + 96 + 32
-        );
-        let off = 0;
-        claimCreditData.set(CLAIM_CREDIT_DISCRIMINATOR, off); off += 8;
-        claimCreditData.set(nullifierHashBytes, off); off += 32;
-        claimCreditData.set(proofResult.proofA, off); off += 64;
-        claimCreditData.set(proofResult.proofB, off); off += 128;
-        claimCreditData.set(proofResult.proofC, off); off += 64;
-        claimCreditData.set(inputsLenBuf, off); off += 4;
-        claimCreditData.set(opaqueInputs, off); off += 96;
-        claimCreditData.set(saltBytes, off);
-
-        const claimCreditIx = new TransactionInstruction({
-          programId: PROGRAM_ID,
-          keys: [
-            { pubkey: vault, isSigner: false, isWritable: true },
-            { pubkey: merkleTree, isSigner: false, isWritable: false },
-            { pubkey: creditNotePDA, isSigner: false, isWritable: true },
-            { pubkey: nullifierPDA, isSigner: false, isWritable: true },
-            { pubkey: publicKey!, isSigner: false, isWritable: false },
-            { pubkey: publicKey!, isSigner: true, isWritable: true },
-            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-          ],
-          data: Buffer.from(claimCreditData),
-        });
+        // TX 1: claim_credit or claim_from_note_pool depending on flavor.
+        // Both produce a CreditNote at [b"credit", nullifier_hash] (or
+        // pool_nullifier_hash for pool flavor); the subsequent withdraw
+        // is shape-identical for both.
+        let claimIx: TransactionInstruction;
+        if (isPool) {
+          claimIx = buildClaimFromNotePoolIx({
+            payer: publicKey!,
+            recipient: publicKey!,
+            poolNullifierHashBytes: nullifierHashBytes,
+            proofA: proofBytes.proofA,
+            proofB: proofBytes.proofB,
+            proofC: proofBytes.proofC,
+            opaqueInputs,
+          });
+        } else {
+          const inputsLenBuf = new Uint8Array(4);
+          new DataView(inputsLenBuf.buffer).setUint32(0, 96, true);
+          const claimCreditData = new Uint8Array(8 + 32 + 64 + 128 + 64 + 4 + 96 + 32);
+          let off = 0;
+          claimCreditData.set(CLAIM_CREDIT_DISCRIMINATOR, off); off += 8;
+          claimCreditData.set(nullifierHashBytes, off); off += 32;
+          claimCreditData.set(proofBytes.proofA, off); off += 64;
+          claimCreditData.set(proofBytes.proofB, off); off += 128;
+          claimCreditData.set(proofBytes.proofC, off); off += 64;
+          claimCreditData.set(inputsLenBuf, off); off += 4;
+          claimCreditData.set(opaqueInputs, off); off += 96;
+          claimCreditData.set(saltBytes, off);
+          claimIx = new TransactionInstruction({
+            programId: PROGRAM_ID,
+            keys: [
+              { pubkey: vault, isSigner: false, isWritable: true },
+              { pubkey: merkleTree, isSigner: false, isWritable: false },
+              { pubkey: creditNotePDA, isSigner: false, isWritable: true },
+              { pubkey: nullifierPDA, isSigner: false, isWritable: true },
+              { pubkey: publicKey!, isSigner: false, isWritable: false },
+              { pubkey: publicKey!, isSigner: true, isWritable: true },
+              { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+            ],
+            data: Buffer.from(claimCreditData),
+          });
+        }
 
         const tx1 = new Transaction().add(
           ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-          claimCreditIx
+          claimIx
         );
         const sig1 = await sendWithRetry({
           wallet: { sendTransaction: sendTransaction! },
@@ -292,7 +378,7 @@ export default function ClaimPage() {
         const rateBuf = new Uint8Array(2); // rate = 0 for direct
 
         const withdrawData = new Uint8Array(8 + 32 + 4 + 72 + 2);
-        off = 0;
+        let off = 0;
         withdrawData.set(WITHDRAW_CREDIT_DISCRIMINATOR, off); off += 8;
         withdrawData.set(nullifierHashBytes, off); off += 32;
         withdrawData.set(openingLenBuf, off); off += 4;

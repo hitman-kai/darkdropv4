@@ -27,9 +27,14 @@ import {
   bytesToHex,
   bigintToHex32,
 } from "@/lib/receipt";
+import {
+  getNotePoolPDA,
+  getNotePoolTreePDA,
+} from "@/lib/note-pool";
+import { randomFieldElement, bigintToBytes32BE } from "@/lib/crypto";
 
 type Stage = "input" | "confirming" | "done" | "error";
-type DepositMode = "direct" | "private";
+type DepositMode = "direct" | "private" | "pool";
 
 // sha256("global:create_drop")[0..8]
 const CREATE_DROP_DISCRIMINATOR = new Uint8Array([157, 142, 145, 247, 92, 73, 59, 48]);
@@ -75,8 +80,12 @@ export default function CreateDropPage() {
       return;
     }
 
-    if (enableRevoke && depositMode === "private") {
+    if (enableRevoke && depositMode !== "direct") {
       setError("Revoke option requires direct deposit (your wallet must sign as depositor).");
+      return;
+    }
+    if (depositMode === "pool" && !relayerOnline) {
+      setError("Max privacy mode requires the relayer to be online.");
       return;
     }
 
@@ -102,14 +111,57 @@ export default function CreateDropPage() {
 
       const dropResult = prepareCreateDrop(lamports, pwdBigint);
 
+      // Pool mode uses its own preimage — pool_secret, pool_nullifier, pool_blinding.
+      // The pool leaf itself is constructed on-chain using the verified amount.
+      const poolSecret = randomFieldElement();
+      const poolNullifier = randomFieldElement();
+      const poolBlinding = randomFieldElement();
+
       // PDAs
       const [vault] = getVaultPDA();
       const [merkleTree] = getMerkleTreePDA(vault);
       const [treasury] = getTreasuryPDA();
+      const [notePoolTree] = getNotePoolTreePDA(vault);
 
       let sig: string;
 
-      if (depositMode === "private") {
+      if (depositMode === "pool") {
+        // Max privacy: relayer calls create_drop_to_pool. User's wallet only
+        // appears as the source of a plain system transfer; the pool entry
+        // and the eventual pool claim are unlinkable to them.
+        const relayerPubkey = await fetch(`${RELAYER_URL}/health`)
+          .then(r => r.json())
+          .then(d => d.relayerPubkey);
+        if (!relayerPubkey) throw new Error("Relayer not available");
+
+        const { PublicKey: PK } = await import("@solana/web3.js");
+        const transferIx = SystemProgram.transfer({
+          fromPubkey: publicKey,
+          toPubkey: new PK(relayerPubkey),
+          lamports: Number(lamports),
+        });
+        const transferTx = new Transaction().add(transferIx);
+        const depositSig = await sendTransaction(transferTx, connection);
+        await connection.confirmTransaction(depositSig, "confirmed");
+
+        const poolParams = new Uint8Array(96);
+        poolParams.set(bigintToBytes32BE(poolSecret), 0);
+        poolParams.set(bigintToBytes32BE(poolNullifier), 32);
+        poolParams.set(bigintToBytes32BE(poolBlinding), 64);
+
+        const resp = await fetch(`${RELAYER_URL}/api/relay/create-drop-to-pool`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            amount: lamports.toString(),
+            poolParams: Array.from(poolParams),
+            depositTx: depositSig,
+          }),
+        });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.error || "Pool deposit relay failed");
+        sig = result.signature;
+      } else if (depositMode === "private") {
         // Private deposit: send SOL to relayer wallet, relayer calls create_drop
         // Step 1: Transfer SOL to relayer via normal system transfer
         const relayerPubkey = await fetch(`${RELAYER_URL}/health`)
@@ -188,10 +240,11 @@ export default function CreateDropPage() {
         });
       }
 
-      // Read the leaf index from the on-chain Merkle tree AND snapshot
-      // root + filled_subtrees so the claim doesn't have to scan events.
-      const treeAccount = await connection.getAccountInfo(merkleTree);
-      if (!treeAccount) throw new Error("Failed to read Merkle tree account");
+      // Read leaf index + snapshot the appropriate tree (main vs note pool
+      // depending on mode). Same on-chain struct layout, different PDA.
+      const treePdaForMode = depositMode === "pool" ? notePoolTree : merkleTree;
+      const treeAccount = await connection.getAccountInfo(treePdaForMode);
+      if (!treeAccount) throw new Error("Failed to read tree account");
 
       const nextIndex = new DataView(
         treeAccount.data.buffer,
@@ -200,13 +253,26 @@ export default function CreateDropPage() {
       const leafIndex = nextIndex - 1;
       const pathSnapshot = snapshotTreeAccount(treeAccount.data);
 
-      // Encode claim code
+      // Encode claim code. For pool flavor, the (secret, nullifier, blinding)
+      // fields carry pool_secret / pool_nullifier / pool_blinding — the
+      // same semantic slot, reused for the pool leaf preimage.
+      const claimPayloadForMode =
+        depositMode === "pool"
+          ? {
+              secret: poolSecret,
+              nullifier: poolNullifier,
+              amount: lamports,
+              blindingFactor: poolBlinding,
+            }
+          : dropResult.claimPayload;
+
       const code = await encodeClaimCode(
         {
-          ...dropResult.claimPayload,
+          ...claimPayloadForMode,
           leafIndex,
           vaultAddress: vault.toBase58(),
           pathSnapshot,
+          flavor: depositMode === "pool" ? "pool" : "standard",
         },
         "devnet",
         "sol",
@@ -377,6 +443,35 @@ export default function CreateDropPage() {
                         </p>
                       </div>
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => relayerOnline && !enableRevoke && setDepositMode("pool")}
+                      disabled={!relayerOnline || enableRevoke}
+                      className={`flex w-full items-start gap-3 border-2 p-4 text-left transition-all !shadow-none ${
+                        depositMode === "pool"
+                          ? "border-[var(--accent-dim)] bg-[rgba(0,255,65,0.04)]"
+                          : "border-[var(--border-dim)] hover:border-[var(--border)]"
+                      } ${(!relayerOnline || enableRevoke) ? "opacity-40 !cursor-not-allowed" : ""}`}
+                    >
+                      <span className={`mt-0.5 flex h-4 w-4 items-center justify-center border-2 ${
+                        depositMode === "pool"
+                          ? "border-[var(--accent)]"
+                          : "border-[rgba(224,224,224,0.2)]"
+                      }`}>
+                        {depositMode === "pool" && <span className="block h-2 w-2 bg-[var(--accent)]" />}
+                      </span>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className={`font-mono text-[10px] tracking-[0.12em] font-semibold ${
+                            depositMode === "pool" ? "text-[var(--accent)]" : "text-[rgba(224,224,224,0.5)]"
+                          }`}>MAX PRIVACY</span>
+                          <span className="arcade-badge">POOL</span>
+                        </div>
+                        <p className="mt-1 text-[10px] leading-relaxed text-[rgba(224,224,224,0.3)]">
+                          SOL enters the note pool directly. Second ZK layer hides the leaf → recipient link on top of the relayer hiding your wallet. No revoke option.
+                        </p>
+                      </div>
+                    </button>
                   </div>
                 </div>
 
@@ -432,7 +527,7 @@ export default function CreateDropPage() {
                   disabled={!amount}
                   className="arcade-btn-primary w-full py-3.5 font-mono text-[10px] tracking-[0.2em]"
                 >
-                  {depositMode === "private" ? "PRIVATE DEPOSIT" : enableRevoke ? "CREATE DROP + RECEIPT" : "CREATE DROP"}
+                  {depositMode === "pool" ? "MAX PRIVACY DEPOSIT" : depositMode === "private" ? "PRIVATE DEPOSIT" : enableRevoke ? "CREATE DROP + RECEIPT" : "CREATE DROP"}
                 </button>
               </>
             )}

@@ -172,4 +172,16 @@ pub mod darkdrop {
     pub fn accept_authority_rotation(ctx: Context<AcceptAuthorityRotation>) -> Result<()> {
         instructions::authority_rotation::handle_accept_authority_rotation(ctx)
     }
+
+    /// Deposit SOL directly into the Note Pool layer. One-TX equivalent of
+    /// create_drop + claim_credit + deposit_to_note_pool. Eliminates the
+    /// temporal correlation an observer could draw from the three-step
+    /// sequence. No dishonest-leaf risk: amount is the literal CPI transfer.
+    pub fn create_drop_to_pool(
+        ctx: Context<CreateDropToPool>,
+        amount: u64,
+        pool_params: Vec<u8>,
+    ) -> Result<()> {
+        instructions::create_drop_to_pool::handle_create_drop_to_pool(ctx, amount, pool_params)
+    }
 }

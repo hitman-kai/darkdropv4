@@ -37,6 +37,10 @@ export interface ClaimCodePayload {
   // deposits — after that the snapshot root is rotated out of root_history.
   // Optional for backward compatibility with pre-snapshot claim codes.
   pathSnapshot?: string;
+  // "standard" (absent or explicit) = base layer: claim_credit → withdraw_credit.
+  // "pool" = note pool layer: claim_from_note_pool → withdraw_credit.
+  // The claim page dispatches on this field.
+  flavor?: "standard" | "pool";
 }
 
 export interface ClaimCode {
@@ -65,6 +69,7 @@ export async function encodeClaimCode(
     i: payload.leafIndex,
     v: payload.vaultAddress,
     ...(payload.pathSnapshot ? { p: payload.pathSnapshot } : {}),
+    ...(payload.flavor && payload.flavor !== "standard" ? { f: payload.flavor } : {}),
   });
 
   if (password) {
@@ -131,6 +136,7 @@ export async function decodeClaimCode(
       leafIndex: parsed.i,
       vaultAddress: parsed.v,
       pathSnapshot: parsed.p,
+      flavor: parsed.f === "pool" ? "pool" : "standard",
     },
   };
 }

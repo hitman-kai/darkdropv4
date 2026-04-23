@@ -19,6 +19,8 @@ import { loadRelayerKeypair } from "./keypair";
 import claimRouter from "./routes/claim";
 import depositRouter from "./routes/deposit";
 import creditRouter from "./routes/credit";
+import poolRouter from "./routes/pool";
+import poolClaimRouter from "./routes/pool-claim";
 
 const app = express();
 
@@ -61,6 +63,8 @@ app.get("/health", (_req, res) => {
 app.use("/api/relay/claim", claimRouter);
 app.use("/api/relay/create-drop", depositRouter);
 app.use("/api/relay/credit", creditRouter);
+app.use("/api/relay/create-drop-to-pool", poolRouter);
+app.use("/api/relay/pool/claim", poolClaimRouter);
 
 app.listen(config.port, () => {
   console.log(`DarkDrop V4 Relayer running on port ${config.port}`);

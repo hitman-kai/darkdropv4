@@ -177,6 +177,104 @@ export async function generateClaimProofV2(
   };
 }
 
+// V3 circuit artifacts (note pool — separate circuit)
+let WASM_V3_PATH = "/circuits/note_pool.wasm";
+let ZKEY_V3_PATH = "/circuits/note_pool_final.zkey";
+
+export function setV3ArtifactPaths(wasmPath: string, zkeyPath: string): void {
+  WASM_V3_PATH = wasmPath;
+  ZKEY_V3_PATH = zkeyPath;
+}
+
+export interface PoolDropSecret {
+  poolSecret: bigint;
+  poolNullifier: bigint;
+  poolBlinding: bigint;
+  amount: bigint;
+}
+
+export interface PoolClaimProofResult {
+  proofA: Uint8Array;
+  proofB: Uint8Array;
+  proofC: Uint8Array;
+  poolMerkleRoot: Uint8Array;           // 32
+  poolNullifierHash: Uint8Array;        // 32
+  newStoredCommitment: Uint8Array;      // 32
+  newBlinding: bigint;                  // for the withdraw opening
+  newSalt: bigint;                      // for the withdraw opening
+}
+
+/**
+ * Generate a Groth16 V3 proof for claim_from_note_pool. Public inputs order
+ * must match the circuit: [pool_merkle_root, pool_nullifier_hash,
+ * new_stored_commitment, recipient_hash].
+ *
+ * Produces a fresh CreditNote for the recipient. The recipient subsequently
+ * calls withdraw_credit with the returned newBlinding/newSalt to extract
+ * SOL — same flow as a base-layer claim.
+ */
+export async function generateClaimProofV3(
+  secret: PoolDropSecret,
+  merkleProof: MerkleProof,
+  recipient: PublicKey,
+  poolNullifierHash: bigint,
+  newBlinding: bigint,
+  newSalt: bigint
+): Promise<PoolClaimProofResult> {
+  // Recipient hash identical to base layer; circuit also needs the
+  // hi/lo halves because it hashes them internally.
+  const recipientBytes = recipient.toBytes();
+  const recipientHi = bytesToBigIntBE(recipientBytes.slice(0, 16));
+  const recipientLo = bytesToBigIntBE(recipientBytes.slice(16, 32));
+  const recipientField = pubkeyToField(recipient);
+
+  // new_stored_commitment = Poseidon(Poseidon(amount, new_blinding), new_salt)
+  // Must match on-chain recomputation in claim_from_note_pool.
+  const { poseidonHash } = await import("./crypto");
+  const originalCommitment = poseidonHash([secret.amount, newBlinding]);
+  const newStoredCommitment = poseidonHash([originalCommitment, newSalt]);
+
+  const circuitInput = {
+    pool_secret: secret.poolSecret.toString(),
+    pool_nullifier: secret.poolNullifier.toString(),
+    amount: secret.amount.toString(),
+    pool_blinding_factor: secret.poolBlinding.toString(),
+    pool_path: merkleProof.pathElements.map((e) => e.toString()),
+    pool_indices: merkleProof.pathIndices.map((i) => i.toString()),
+    new_blinding: newBlinding.toString(),
+    new_salt: newSalt.toString(),
+    recipient_hi: recipientHi.toString(),
+    recipient_lo: recipientLo.toString(),
+    pool_merkle_root: merkleProof.root.toString(),
+    pool_nullifier_hash: poolNullifierHash.toString(),
+    new_stored_commitment: newStoredCommitment.toString(),
+    recipient_hash: recipientField.toString(),
+  };
+
+  const { proof } = await snarkjs.groth16.fullProve(
+    circuitInput,
+    WASM_V3_PATH,
+    ZKEY_V3_PATH
+  );
+
+  return {
+    proofA: g1NegToBytes(proof.pi_a),
+    proofB: g2ToBytes(proof.pi_b),
+    proofC: g1ToBytes(proof.pi_c),
+    poolMerkleRoot: bigintToBytes32BE(merkleProof.root),
+    poolNullifierHash: bigintToBytes32BE(poolNullifierHash),
+    newStoredCommitment: bigintToBytes32BE(newStoredCommitment),
+    newBlinding,
+    newSalt,
+  };
+}
+
+function bytesToBigIntBE(bytes: Uint8Array): bigint {
+  let hex = "";
+  for (let i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, "0");
+  return BigInt("0x" + (hex || "0"));
+}
+
 // --- Proof serialization helpers ---
 // snarkjs outputs proof points as decimal string arrays.
 // On-chain expects raw big-endian bytes.
