@@ -20,10 +20,10 @@ Thank you for your interest in contributing to DarkDrop. This document covers ho
 ## Repository Structure
 
 ```
-program/          Solana program (Anchor/Rust) — 13 instructions, triple VK (V1/V2/V3)
+program/          Solana program (Anchor/Rust) — 18 instructions, triple VK (V1/V2/V3)
 circuits/         Circom ZK circuits (V2 credit note + V3 note pool) + build artifacts
 scripts/          E2E tests, security tests, stress test, migration runbooks
-frontend/         Next.js web application
+frontend/         Next.js web application (/drop/create, /drop/claim, /drop/manage)
 relayer/          Express.js gasless relay server
 audits/           4 security audit reports + fix tracker
 ```
@@ -102,6 +102,21 @@ node scripts/legacy-create-drop-test.js
 ```bash
 # E2E: credit note → deposit to pool → claim fresh note → withdraw
 node scripts/note-pool-test.js
+
+# E2E: create_drop_to_pool (one-TX deposit) → claim_from_note_pool → withdraw_credit
+node scripts/e2e-pool-deposit-test.js
+```
+
+### Schema v2 migration (one-off deploy tooling)
+
+```bash
+# Snapshot current on-chain account sizes (MerkleTree, NotePoolTree, Vault)
+# and write scripts/migration-baseline.json as a known-good pre-migration reference.
+RPC_URL=https://api.devnet.solana.com node scripts/dump-account-sizes.js
+
+# Idempotent runner that reallocates both trees to the new 8912-byte layout
+# (ROOT_HISTORY_SIZE=256). Safe to re-run; no-op once already migrated.
+RPC_URL=https://api.devnet.solana.com node scripts/migrate-schema-v2.js
 ```
 
 ### Stress and parity
@@ -144,7 +159,13 @@ node scripts/test_poseidon_compat.js
 
 - Dev server: `cd frontend && npx next dev`.
 - Build: `npx next build`.
-- Circuit artifacts must be in `frontend/public/circuits/` (V1 legacy zkey, V2 credit-note zkey, V2 wasm, V3 note-pool zkey, V3 note-pool wasm).
+- Circuit artifacts must be in `frontend/public/circuits/`:
+  - `darkdrop.wasm` (V1/V2 prover, ~2.5 MB)
+  - `darkdrop_final.zkey` (V1 proving key, legacy)
+  - `darkdrop_v2_final.zkey` (V2 proving key, credit note)
+  - `note_pool.wasm` (V3 prover, ~2.5 MB)
+  - `note_pool_final.zkey` (V3 proving key, ~5.8 MB)
+  The V3 artifacts must be present for MAX PRIVACY (pool) deposits to claim — the browser loads them when it detects a pool-flavored claim code.
 
 ---
 
@@ -170,7 +191,7 @@ The IDL is hand-written with deliberately obfuscated field names (privacy featur
 
 Source of truth: `program/idl/darkdrop.json` (currently **v0.3.0**).
 
-**Current staleness:** The hand-written IDL (v0.3.0) and the on-chain IDL account (also v0.3.0) both declare **8 instructions**, but the deployed program binary exposes **13**. The 5 instructions present in the binary but missing from the IDL are: `create_treasury`, `admin_sweep`, `migrate_vault`, `revoke_drop`, `close_receipt`. Block explorers and Anchor-based SDK clients cannot decode calls to these instructions; the frontend hardcodes discriminators instead. See KNOWN ISSUES #9 in [ARCHITECTURE.md](ARCHITECTURE.md).
+**Current staleness:** The hand-written IDL (v0.3.0) declares **13 instructions**, but the deployed program binary exposes **18**. The 5 instructions present in the binary but missing from the IDL are pre-existing: `create_treasury`, `admin_sweep`, `migrate_vault`, `revoke_drop`, `close_receipt`. The schema v2 and note-pool sessions added `migrate_schema_v2`, `propose_authority_rotation`, `revoke_authority_rotation`, `accept_authority_rotation`, and `create_drop_to_pool` to the IDL. Block explorers and Anchor-based SDK clients still cannot decode calls to the 5 missing instructions; the frontend hardcodes discriminators instead. See KNOWN ISSUES #9 in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Fixing this is a deploy-time action: add the missing instructions to `program/idl/darkdrop.json` (preserving obfuscated field names) and upload with `anchor idl upgrade`. If you change any existing instruction's accounts or arguments, you must also manually update the hand-written IDL.
 

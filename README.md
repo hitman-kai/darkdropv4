@@ -10,10 +10,11 @@ DarkDrop splits the claim into two steps via a **credit note model**:
 2. **Claim** (`claim_credit`) -- Groth16 proof verified on-chain (V2 circuit, amount is a private input). CreditNote PDA created storing a re-randomized Poseidon commitment (salted to break deposit→claim linkage). Nullifier marked spent. Zero SOL moves. Zero amounts in instruction data.
 3. **Withdraw** (`withdraw_credit`) -- User opens the Poseidon commitment. Program verifies via on-chain recomputation. SOL transferred via direct lamport manipulation on the program-owned treasury. No CPI, no inner instruction. CreditNote PDA closed.
 
-Two additional paths layer on top of the core flow:
+Three additional paths layer on top of the core flow:
 
-- **Note Pool (V3)** -- optional second-layer Merkle mixer for credit notes. `deposit_to_note_pool` opens a credit note and inserts a fresh pool leaf constructed by the program with a verified amount. `claim_from_note_pool` verifies a V3 Groth16 proof and issues a brand-new credit note. An observer must break both ZK layers to deanonymize.
-- **Revoke (30-day time-lock)** -- `revoke_drop` lets the depositor reclaim SOL from an unclaimed drop by submitting the full leaf preimage. The program reconstructs the leaf on-chain, derives the nullifier, and refunds via direct lamport manipulation. Claim and revoke share the nullifier PDA namespace, so a drop can only resolve one way. `close_receipt` recovers receipt rent for drops that were claimed normally.
+- **Note Pool (V3)** -- second-layer Merkle mixer. Two entry paths: `deposit_to_note_pool` opens an existing credit note and inserts a fresh pool leaf; `create_drop_to_pool` goes straight from SOL → pool leaf in one TX (MAX PRIVACY on the frontend). Both construct the pool leaf on-chain with a program-verified amount, eliminating the dishonest-leaf problem at the pool layer. `claim_from_note_pool` verifies a V3 Groth16 proof and issues a brand-new credit note. An observer must break both ZK layers to deanonymize.
+- **Revoke (30-day time-lock)** -- `revoke_drop` lets the depositor reclaim SOL from an unclaimed drop by submitting the full leaf preimage. The program reconstructs the leaf on-chain, derives the nullifier, and refunds via direct lamport manipulation. Claim and revoke share the nullifier PDA namespace, so a drop can only resolve one way. `close_receipt` recovers receipt rent for drops that were claimed normally. The frontend's `/drop/manage` page surfaces stored receipts per-wallet with revoke / close_receipt actions and a staleness badge warning when a claim-code snapshot is near root-history rotation.
+- **Authority rotation** -- `propose_authority_rotation` / `revoke_authority_rotation` / `accept_authority_rotation` implement a single-proposal sidecar pattern for rotating the vault authority without touching Vault state. Closes Audit 04 L-03.
 
 The treasury PDA is owned by the DarkDrop program (not the system program), enabling direct lamport debit without `system_program::transfer`. The program stores triple verification keys (V1 for backward compatibility, V2 for credit notes, V3 for note pool claims). The IDL uses obfuscated field names (`data`, `inputs`, `opening`, `rate`) -- no field is named "amount", "fee", or "lamports".
 
@@ -88,7 +89,7 @@ npm install
 npx ts-node src/index.ts
 ```
 
-Endpoints: `GET /health`, `POST /api/relay/claim` (legacy V1), `POST /api/relay/create-drop` (private deposit), `POST /api/relay/credit/claim` (V2 claim), `POST /api/relay/credit/withdraw` (V2 withdraw).
+Endpoints: `GET /health`, `POST /api/relay/claim` (legacy V1), `POST /api/relay/create-drop` (private deposit), `POST /api/relay/credit/claim` (V2 claim), `POST /api/relay/credit/withdraw` (V2 withdraw), `POST /api/relay/create-drop-to-pool` (MAX PRIVACY deposit), `POST /api/relay/pool/claim` (gasless V3 claim).
 
 ## Tests
 
@@ -102,6 +103,9 @@ RPC_URL=https://api.devnet.solana.com node scripts/security-credit-tests.js
 # Multi-wallet stress test (10 deposits, 10 claims, 5 wallets each side)
 RPC_URL=https://api.devnet.solana.com node scripts/stress-test.js
 
+# Pool direct-deposit E2E (localnet or devnet)
+node scripts/e2e-pool-deposit-test.js
+
 # Legacy tests
 node scripts/e2e-test.js
 node scripts/security-tests.js
@@ -111,9 +115,9 @@ node scripts/security-tests.js
 
 ```
 circuits/           Circom circuits (V2 credit note + V3 note pool)
-program/            Anchor program (13 instructions, triple VK — V1/V2/V3)
-frontend/           Next.js 16 frontend
-relayer/            Express relay server (5 endpoints: deposit + legacy claim + credit claim/withdraw + health)
+program/            Anchor program (18 instructions, triple VK — V1/V2/V3)
+frontend/           Next.js 16 frontend (/drop/create, /drop/claim, /drop/manage)
+relayer/            Express relay server (7 endpoints: deposit + pool deposit + legacy claim + credit claim/withdraw + pool claim + health)
 scripts/            E2E tests, security tests, stress test, migration runbooks, VK export
 audits/             4 security audit reports + fix tracker
 ```
@@ -127,7 +131,10 @@ audits/             4 security audit reports + fix tracker
 - Recipient bound to proof via Poseidon(pubkey)
 - `admin_sweep` obligation-aware: cannot drain SOL backing outstanding credit notes
 - Revoke is sender-keyed and time-locked (30 days), preimage-verified on-chain
-- Test matrix: 6/6 legacy, 7/7 credit note, 4/4 note pool, 11/11 revoke + close_receipt — all passing
+- Authority rotation via propose/accept sidecar (no Vault realloc, single-proposal invariant)
+- Root history 256 slots (schema v2) — claim-code snapshots remain verifiable for ~1–2 weeks of devnet activity
+- `create_drop_to_pool` takes the dishonest-leaf problem off the table for pool-bound deposits: the pool leaf is constructed on-chain from the literal CPI amount
+- Test matrix: 6/6 legacy, 7/7 credit note, 4/4 note pool, 11/11 revoke + close_receipt, plus pool-direct-deposit E2E — all passing
 
 ## Audits
 

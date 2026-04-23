@@ -43,7 +43,7 @@ The following components are in scope for security reports:
 
 The following are **known design limitations**, not vulnerabilities. They are documented in the [audit reports](audits/README.md):
 
-1. **Unverified leaf in `create_drop`:** The program cannot verify that the Merkle leaf matches the deposited amount because the leaf commits to private data (secret, nullifier). This is inherent to commitment-scheme mixers (same class as Tornado Cash). A malicious depositor can construct a dishonest leaf, but exploiting it requires other users' deposits to be in the treasury. The Note Pool (V3) layer eliminates this for pool-deposited credit notes by constructing pool leaves on-chain with a program-verified amount.
+1. **Unverified leaf in `create_drop`:** The program cannot verify that the Merkle leaf matches the deposited amount because the leaf commits to private data (secret, nullifier). This is inherent to commitment-scheme mixers (same class as Tornado Cash). A malicious depositor can construct a dishonest leaf, but exploiting it requires other users' deposits to be in the treasury. The Note Pool (V3) layer eliminates this for drops that flow into the pool — both `deposit_to_note_pool` (pool-deposited credit notes) and `create_drop_to_pool` (direct pool entry) construct pool leaves on-chain with a program-verified amount.
 
 2. **Deposit amount is visible:** The `create_drop` instruction uses CPI `system_program::transfer`, which makes the deposit amount visible on-chain. The credit note model hides the amount at claim time and decorrelates at withdraw time, but the deposit itself is public.
 
@@ -85,3 +85,5 @@ DarkDrop's security model provides the following guarantees:
 | Fee cap | 5% maximum enforced on-chain (500 bps) | Audit #1, #3 |
 | Proof soundness | Groth16 verification via `groth16-solana` crate (V1/V2/V3 circuits) | Audit #2, #4 |
 | Revoke authorization | Preimage-verified leaf reconstruction; 30-day time-lock; depositor-signed; shares nullifier namespace with claim | Audit #4 |
+| Extended root history | 256-slot circular buffer (schema v2) — claim-code snapshots verify on-chain for ~1–2 weeks of devnet activity before rotating out | Schema v2 migration (2026-04-23) |
+| Authority rotation | Propose/revoke/accept sidecar PDA keyed by vault; single-proposal-in-flight invariant; new authority must sign acceptance | Audit #4 L-03 fix |

@@ -1,6 +1,6 @@
 # DARKDROP V4 — CURRENT DEPLOYED STATE
 
-Last updated: April 22, 2026
+Last updated: April 23, 2026
 
 This document is the source of truth for the current deployed state. It supersedes the original BLUEPRINT.md where the two conflict.
 
@@ -10,8 +10,10 @@ This document is the source of truth for the current deployed state. It supersed
 
 - **Program ID:** `GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU`
 - **Cluster:** Devnet
-- **Binary size:** 596 KB (610,664 bytes)
-- **IDL account:** `Ga5PRgbVxhh9ek39BRHCXgsb5obHqYooq4qV2ebJ8tKG` (v0.3.0, obfuscated field names; see KNOWN ISSUES — IDL is missing 5 instructions that exist in the binary)
+- **Binary size:** 667 KB (683,096 bytes)
+- **Latest upgrade TX:** `2rPAbEi7reBnkjQPak6KmKbZyoSJnswbjTQGtvSaCiewfBsN5aNRwX2mJMxrRUXaRUHLXB3LyBpxH6c5mPB7DV1V` (create_drop_to_pool, 2026-04-23)
+- **Schema v2 migration TX:** `qUSWwGLfdm28TP12BRJwAvcDRVx5U75GfXdte8x5MPK3K56qNvm8jKn52qFBWQwzmz3dmHkR4NWtBduc8VXjsX3` (MerkleTree + NotePoolTree reallocated to ROOT_HISTORY_SIZE=256, 2026-04-23)
+- **IDL account:** `Ga5PRgbVxhh9ek39BRHCXgsb5obHqYooq4qV2ebJ8tKG` (v0.3.0, obfuscated field names; see KNOWN ISSUES — IDL declares 13 instructions, binary exposes 18)
 - **Vault PDA:** `3ioMEKQvKnLaR8JFQUgsNFDby9Xi89M5MWZXNzdUJZoG`
 - **Merkle Tree PDA:** `2rvpifNShofeGz1BqJHeVPHoyvm43fYpcU5vtgozLrA2`
 - **Treasury PDA:** `1427qYPVC3ghVifCtg45yDtoSvdzNKQ3TEce5kK3c6Wr` (program-owned, direct lamport manipulation)
@@ -20,7 +22,8 @@ This document is the source of truth for the current deployed state. It supersed
 
 ### Vault state
 
-- Merkle tree: ~163 leaves (grows continuously via seeder, ~15–30 drops/day)
+- Merkle tree: ~230+ leaves (grows continuously via seeder, ~15–30 drops/day)
+- MerkleTree + NotePoolTree accounts: 8912 bytes each (schema v2, ROOT_HISTORY_SIZE=256)
 - Legacy stuck funds: ~0.2 SOL in old sol_vault PDA (system-owned, orphaned after treasury migration)
 - Drop cap: 100 SOL
 
@@ -110,16 +113,18 @@ This produces zero CPI calls and zero inner instructions. `system_program::trans
 
 ### IDL obfuscation
 
-The IDL (v0.2.0) uses deliberately uninformative field names:
+The IDL (v0.3.0) uses deliberately uninformative field names:
 
 | Actual meaning | IDL field name | Why |
 |---|---|---|
 | amount (create_drop) | `data` | Prevents Solscan from labeling it "Amount: 100,000,000" |
+| amount (create_drop_to_pool) | `data` | Same obfuscation as create_drop |
 | amount_commitment | `commitment` | Generic |
 | password_hash | `seed` | Generic |
 | fee_lamports (legacy claim) | `params` | Generic |
-| amount + blinding (withdraw) | `opening` | Opaque bytes, no sub-fields |
+| amount + blinding + salt (withdraw) | `opening` | Opaque 72-byte blob, no sub-fields |
 | fee rate (withdraw) | `rate` | u16, not decoded as lamports |
+| pool_secret + pool_nullifier + pool_blinding | `params` | Opaque 96-byte blob for both deposit_to_note_pool and create_drop_to_pool |
 
 No field in any instruction is named "amount", "lamports", "fee", or "balance".
 
@@ -294,7 +299,7 @@ V1, V2, and V3 VKs are compiled into `vk.rs` as constants. `verifying_key_v1()` 
 
 ### 8. Root history — fixed-size circular buffer
 
-30 recent roots stored. After 30 new drops, old roots expire.
+Schema v2 (deployed 2026-04-23): **256 recent roots** stored (bumped from 30 to extend the window during which a claim-code snapshot remains verifiable on-chain). Same circular-buffer semantics — after 256 new drops, the oldest root expires.
 
 ### 9. Fee system
 
@@ -477,10 +482,10 @@ Args: proof (ProofData), merkle_root ([u8;32]), nullifier_hash ([u8;32]),
       amount (u64), amount_commitment ([u8;32]), password_hash ([u8;32]),
       fee_lamports (u64)
 Accounts: vault, merkle_tree, treasury, nullifier_account, recipient,
-          fee_recipient, payer, system_program
+          payer, system_program
 ```
 
-Uses V1 verification key (6 public inputs). Transfers SOL via direct lamport manipulation from treasury. Kept for backward compatibility.
+Uses V1 verification key (6 public inputs). Transfers SOL via direct lamport manipulation from treasury. Fee credits to `payer` directly (Audit 04 I-04: the redundant `fee_recipient` account was removed; previously constrained equal to payer). Kept for backward compatibility.
 
 ### claim_credit (V2 circuit — hidden amount)
 
@@ -508,23 +513,22 @@ The `inputs` field is an opaque 96-byte blob: `merkle_root(32) + amount_commitme
 
 ```
 Discriminator: [8, 173, 134, 129, 40, 255, 134, 30]
-Args: nullifier_hash ([u8;32]), opening (Vec<u8> — 40 bytes opaque), rate (u16)
-Accounts: vault, treasury, credit_note, recipient, fee_recipient, payer, system_program
+Args: nullifier_hash ([u8;32]), opening (Vec<u8> — 72 bytes opaque), rate (u16)
+Accounts: vault, treasury, credit_note, recipient, payer, system_program
 ```
 
-Opens the Poseidon commitment. Program recomputes `Poseidon(amount, blinding_factor)` on-chain and verifies against stored commitment. Transfers SOL via direct lamport manipulation — no CPI, no inner instruction. Fee = `amount * rate / 10000`. CreditNote PDA closed after withdrawal.
+Opens the Poseidon commitment. Program recomputes `Poseidon(Poseidon(amount, blinding_factor), salt)` on-chain and verifies against stored commitment. Transfers SOL via direct lamport manipulation — no CPI, no inner instruction. Fee = `amount * rate / 10000`, credited to `payer` (I-04: redundant `fee_recipient` account removed). CreditNote PDA closed after withdrawal.
 
-The `opening` field is an opaque 40-byte blob: `amount(8 LE) + blinding_factor(32)`.
+The `opening` field is an opaque 72-byte blob: `amount(8 LE) + blinding_factor(32) + salt(32)`.
 
 | Index | Account | Writable | Signer |
 |-------|---------|----------|--------|
-| 0 | vault | no | no |
+| 0 | vault | yes | no |
 | 1 | treasury | yes | no |
 | 2 | credit_note | yes | no |
 | 3 | recipient | yes | no |
-| 4 | fee_recipient | yes | no |
-| 5 | payer | yes | yes |
-| 6 | system_program | no | no |
+| 4 | payer | yes | yes |
+| 5 | system_program | no | no |
 
 ### revoke_drop
 
@@ -562,6 +566,69 @@ Close an orphaned DepositReceipt after a drop has been claimed normally (not rev
 | 0 | deposit_receipt | yes | no |
 | 1 | depositor | yes | yes |
 
+### migrate_schema_v2 (migration)
+
+```
+Discriminator: [169, 82, 231, 138, 226, 218, 110, 237]
+Args: none
+Accounts: vault, merkle_tree, note_pool_tree, authority, system_program
+```
+
+One-time schema v2 migration: reallocates `MerkleTreeAccount` and `NotePoolTree` from 1680 bytes (ROOT_HISTORY_SIZE=30) to 8912 bytes (ROOT_HISTORY_SIZE=256). Existing roots + `filled_subtrees` are preserved; the 226 newly-allocated `root_history` slots are seeded with `ZERO_HASHES[MERKLE_DEPTH]` (also closes Audit 04 L-01 + Audit 03 L-03-NEW for pre-existing accounts). Atomic across both trees (either both migrate in one TX or neither does). Idempotent per-tree — returns `Ok` silently if already at the new size; `InvalidAccountSize` (6019) on unexpected sizes. Rent diff is paid by the authority. See `scripts/migrate-schema-v2.js` for the runbook.
+
+### propose_authority_rotation (L-03)
+
+```
+Discriminator: [185, 202, 177, 179, 135, 170, 62, 115]
+Args: new_authority (Pubkey)
+Accounts: vault, pending_authority, authority, system_program
+```
+
+Current authority proposes a new authority. Creates a `PendingAuthority` sidecar PDA at `[b"pending_authority", vault.key()]`. Single-proposal-in-flight invariant: `init` fails with `AccountAlreadyInitialized` if another proposal exists — the current authority must `revoke_authority_rotation` first to re-propose. Does NOT change `vault.authority`.
+
+### revoke_authority_rotation (L-03)
+
+```
+Discriminator: [20, 250, 65, 1, 7, 141, 159, 100]
+Args: none
+Accounts: vault, pending_authority (close = authority), authority
+```
+
+Current authority withdraws its own pending proposal. Closes the sidecar, rent returned to authority. Used when the proposed pubkey was wrong, or to supersede with a new proposal.
+
+### accept_authority_rotation (L-03)
+
+```
+Discriminator: [197, 155, 6, 45, 79, 0, 106, 66]
+Args: none
+Accounts: vault, pending_authority (close = new_authority), new_authority
+```
+
+The proposed new authority signs to accept. Handler verifies `pending_authority.new_authority == signer` (`PendingAuthorityMismatch` 6020 otherwise — Anchor's `close =` only routes lamports, it does not check identity). Flips `vault.authority` to the signer, closes the sidecar.
+
+### create_drop_to_pool (one-TX pool deposit)
+
+```
+Discriminator: [92, 206, 41, 22, 178, 116, 89, 63]
+Args: amount (u64), pool_params (Vec<u8> — 96 bytes opaque)
+Accounts: vault, note_pool, note_pool_tree, treasury, sender, system_program
+```
+
+Atomic equivalent of `create_drop` + `claim_credit` + `deposit_to_note_pool` in one TX. Eliminates the 3-TX temporal correlation an observer could exploit through the compose-three-existing-instructions path. SOL → treasury via CPI. Pool leaf = `Poseidon(pool_secret, pool_nullifier, VERIFIED_amount, pool_blinding)` — constructed on-chain from the literal CPI transfer amount, so there is no commitment-scheme opening that could lie about the amount (eliminates I-01 at the pool entry layer, same property as `deposit_to_note_pool`).
+
+The `pool_params` field is an opaque 96-byte blob: `pool_secret(32) + pool_nullifier(32) + pool_blinding(32)`.
+
+| Index | Account | Writable | Signer |
+|-------|---------|----------|--------|
+| 0 | vault | yes | no |
+| 1 | note_pool | yes | no |
+| 2 | note_pool_tree | yes | no |
+| 3 | treasury | yes | no |
+| 4 | sender | yes | yes |
+| 5 | system_program | no | no |
+
+Claim codes for drops created via this instruction carry `"f": "pool"` in the claim-code payload — the frontend dispatches to the V3 proof + `claim_from_note_pool` path automatically. See [CLAIM CODE FORMAT](#claim-code-format) below.
+
 ### ProofData struct
 
 ```rust
@@ -578,12 +645,27 @@ pub struct ProofData {
 pub struct CreditNote {
     pub bump: u8,
     pub recipient: Pubkey,
-    pub commitment: [u8; 32],      // Poseidon(amount, blinding_factor)
+    pub commitment: [u8; 32],      // Poseidon(Poseidon(amount, blinding_factor), salt) — re-randomized
     pub nullifier_hash: [u8; 32],
+    pub salt: [u8; 32],
     pub created_at: i64,
 }
 // PDA seeds: [b"credit", nullifier_hash]
-// Size: 113 bytes, rent ~0.00157 SOL (returned on close)
+// Size: 145 bytes, rent ~0.00191 SOL (returned on close)
+```
+
+### PendingAuthority struct (L-03 sidecar)
+
+```rust
+pub struct PendingAuthority {
+    pub bump: u8,
+    pub vault: Pubkey,
+    pub proposer: Pubkey,        // current authority at propose time
+    pub new_authority: Pubkey,   // the proposed new authority
+    pub proposed_at: i64,
+}
+// PDA seeds: [b"pending_authority", vault.key()]
+// Size: 113 bytes. One pending proposal per vault at a time.
 ```
 
 ### Error codes
@@ -609,6 +691,8 @@ pub struct CreditNote {
 | 6016 | DropAlreadyClaimed | Reserved for explicit claim/revoke race detection |
 | 6017 | InvalidDepositReceipt | `create_drop` remaining_accounts failed signer/writable/PDA checks |
 | 6018 | LeafAlreadyDeposited | A receipt already exists for this leaf |
+| 6019 | InvalidAccountSize | `migrate_schema_v2`: tree account size does not match any known schema version |
+| 6020 | PendingAuthorityMismatch | `accept_authority_rotation`: signer does not match the proposed new authority |
 
 ---
 
@@ -719,14 +803,21 @@ darkdrop:v4:{cluster}:{asset}:{encryption}:{payload}
   "a": "amount_lamports_string",
   "b": "base58_blinding_factor",
   "i": leaf_index,
-  "v": "base58_vault_address"
+  "v": "base58_vault_address",
+  "p": "base64url_path_snapshot",
+  "f": "pool"
 }
 ```
+
+`p` (optional): base64url-encoded 672-byte tree snapshot (root(32) + filled_subtrees(20×32)). Captured at deposit time so the claim path doesn't scan event logs — lets the recipient reconstruct the Merkle proof against the insertion-time root. Codes without `p` fall back to event-log replay (slow, fragile on public RPC).
+
+`f` (optional): flavor tag. Absent or `"standard"` = base-layer flow (claim_credit → withdraw_credit, V2 proof, main merkle_tree). `"pool"` = note-pool flow (claim_from_note_pool → withdraw_credit, V3 proof, note_pool_tree). For pool codes, the `s` / `n` / `b` slots carry `pool_secret` / `pool_nullifier` / `pool_blinding` — same JSON encoding, different semantic. The claim page dispatches on this field.
 
 ### Encryption
 
 - `raw`: base64url-encoded JSON, anyone with code can claim
-- `aes:{hint}:{payload}`: AES-256-GCM encrypted, password required
+- `aes:{hint}:{payload}`: AES-256-GCM encrypted, password required (legacy decode-only)
+- `pbkdf2:{hint}:{payload}`: PBKDF2-derived AES-256-GCM, password required
 
 ---
 
@@ -745,6 +836,8 @@ Express.js server. Source: `relayer/src/`. Build on Linux fs at `~/darkdrop-v4-r
 | `POST /api/relay/create-drop` | Deposit relay — user sends SOL to relayer, relayer calls create_drop |
 | `POST /api/relay/credit/claim` | Credit note claim relay (V2 circuit) |
 | `POST /api/relay/credit/withdraw` | Credit note withdraw relay |
+| `POST /api/relay/create-drop-to-pool` | MAX PRIVACY deposit — user sends SOL to relayer, relayer calls create_drop_to_pool |
+| `POST /api/relay/pool/claim` | Gasless V3 pool claim — relayer submits claim_from_note_pool with recipient-built proof |
 
 ### Deposit relay flow
 
@@ -790,8 +883,9 @@ The relayer cannot steal funds (ZK proof binds to recipient). The relayer can on
 | Route | Status | Description |
 |-------|--------|-------------|
 | / | Built | Landing page with honest privacy model |
-| /drop/create | Wired to devnet | Direct deposit or Private Deposit (via relayer) |
-| /drop/claim | Wired to devnet | Two-TX flow: claim_credit + withdraw_credit, gasless/direct toggle |
+| /drop/create | Wired to devnet | Three deposit modes: DIRECT, PRIVATE DEPOSIT (via relayer), MAX PRIVACY (pool, via relayer). Optional revoke toggle on DIRECT mode (creates DepositReceipt). |
+| /drop/claim | Wired to devnet | Two-TX flow: claim_credit (or claim_from_note_pool for pool-flavored codes) + withdraw_credit. Gasless/direct toggle. V2 and V3 proofs generated in-browser via snarkjs WASM. |
+| /drop/manage | Wired to devnet | Lists stored receipts per-wallet with on-chain status (LOCKED / REVOKABLE / CLAIMED·ORPHAN / RESOLVED). Revoke, close_receipt, and snapshot-staleness actions. |
 
 ### Claim flow (two TXs, one button)
 
@@ -815,13 +909,19 @@ Circuit artifacts in `public/circuits/`:
 - `darkdrop.wasm` (2.5 MB)
 - `darkdrop_final.zkey` (5.4 MB) — V1 legacy
 - `darkdrop_v2_final.zkey` (5.4 MB) — V2 credit note
+- `note_pool.wasm` (2.5 MB) — V3 prover
+- `note_pool_final.zkey` (5.8 MB) — V3 proving key (loaded when claim page detects a pool-flavored code)
 
 ### Instruction discriminators (hardcoded in frontend)
 
 ```
-create_drop:     [157, 142, 145, 247, 92, 73, 59, 48]
-claim_credit:    [190, 242, 172, 79, 29, 82, 22, 163]
-withdraw_credit: [8, 173, 134, 129, 40, 255, 134, 30]
+create_drop:          [157, 142, 145, 247,  92,  73,  59,  48]
+claim_credit:         [190, 242, 172,  79,  29,  82,  22, 163]
+withdraw_credit:      [  8, 173, 134, 129,  40, 255, 134,  30]
+create_drop_to_pool:  [ 92, 206,  41,  22, 178, 116,  89,  63]
+claim_from_note_pool: [253,   6, 222,  21, 191, 226,  43, 142]
+revoke_drop:          [191, 194,  86,  39, 243, 136,  64,  16]
+close_receipt:        [126, 254, 244, 203, 124, 164, 134,  89]
 ```
 
 ---
@@ -832,7 +932,7 @@ withdraw_credit: [8, 173, 134, 129, 40, 255, 134, 30]
 
 | File | Purpose |
 |------|---------|
-| `program/programs/darkdrop/src/lib.rs` | Entry point, 13 instruction routing |
+| `program/programs/darkdrop/src/lib.rs` | Entry point, 18 instruction routing |
 | `program/programs/darkdrop/src/state.rs` | Vault, Treasury, CreditNote, MerkleTreeAccount, NullifierAccount, NotePool, NotePoolTree, PoolNullifierAccount, ProofData |
 | `program/programs/darkdrop/src/instructions/initialize.rs` | initialize_vault (creates vault + merkle_tree + treasury) |
 | `program/programs/darkdrop/src/instructions/create_drop.rs` | create_drop (CPI to treasury) |
@@ -844,7 +944,7 @@ withdraw_credit: [8, 173, 134, 129, 40, 255, 134, 30]
 | `program/programs/darkdrop/src/instructions/initialize_note_pool.rs` | initialize_note_pool (creates pool + pool tree) |
 | `program/programs/darkdrop/src/instructions/deposit_to_note_pool.rs` | deposit_to_note_pool (opens credit note, constructs pool leaf) |
 | `program/programs/darkdrop/src/instructions/claim_from_note_pool.rs` | claim_from_note_pool (V3 proof, fresh credit note) |
-| `program/programs/darkdrop/src/errors.rs` | DarkDropError enum (19 variants, codes 6000–6018) |
+| `program/programs/darkdrop/src/errors.rs` | DarkDropError enum (21 variants, codes 6000–6020) |
 | `program/programs/darkdrop/src/verifier.rs` | verify_proof (V1) + verify_proof_v2 (V2) + verify_proof_v3 (V3) |
 | `program/programs/darkdrop/src/vk.rs` | Triple VK: verifying_key_v1() + verifying_key_v2() + verifying_key_v3() |
 | `program/programs/darkdrop/src/poseidon.rs` | On-chain Poseidon hash (light-hasher, 2-input + 4-input) |
@@ -853,7 +953,10 @@ withdraw_credit: [8, 173, 134, 129, 40, 255, 134, 30]
 | `program/programs/darkdrop/src/instructions/migrate_vault.rs` | migrate_vault (one-time vault realloc for obligation fields) |
 | `program/programs/darkdrop/src/instructions/revoke_drop.rs` | revoke_drop (30-day time-locked refund, preimage-verified) |
 | `program/programs/darkdrop/src/instructions/close_receipt.rs` | close_receipt (unconditional rent recovery for orphaned receipts) |
-| `program/target/deploy/darkdrop.so` | Compiled program binary (596 KB) |
+| `program/programs/darkdrop/src/instructions/migrate_schema_v2.rs` | migrate_schema_v2 (one-time realloc of both trees to ROOT_HISTORY_SIZE=256) |
+| `program/programs/darkdrop/src/instructions/authority_rotation.rs` | propose/revoke/accept_authority_rotation (L-03 sidecar) |
+| `program/programs/darkdrop/src/instructions/create_drop_to_pool.rs` | create_drop_to_pool (one-TX direct pool entry) |
+| `program/target/deploy/darkdrop.so` | Compiled program binary (667 KB) |
 
 ### Circuits
 
@@ -888,6 +991,9 @@ withdraw_credit: [8, 173, 134, 129, 40, 255, 134, 30]
 | `scripts/legacy-create-drop-test.js` | Backward-compat check for 5-account create_drop |
 | `scripts/stress-test.js` | Multi-wallet stress test (10 deposits, 10 claims, 5 wallets/side) |
 | `scripts/migrate-vault-v2.js` | Runbook: invoke migrate_vault on existing deployment |
+| `scripts/dump-account-sizes.js` | Pre-flight: snapshot current tree + vault sizes to migration-baseline.json |
+| `scripts/migrate-schema-v2.js` | Runbook: invoke migrate_schema_v2 (idempotent, asserts baseline) |
+| `scripts/e2e-pool-deposit-test.js` | E2E: create_drop_to_pool → claim_from_note_pool → withdraw_credit |
 | `scripts/test_poseidon_compat.js` | Poseidon parity check (JS ↔ Rust light-hasher) |
 | `scripts/generate_zero_hashes.js` | Precompute empty-tree zero hashes for Merkle init |
 | `scripts/generate-audit-pdfs.js` | Render `/audits/*.md` to PDF |
@@ -902,6 +1008,8 @@ withdraw_credit: [8, 173, 134, 129, 40, 255, 134, 30]
 | `relayer/src/routes/claim.ts` | Legacy claim relay |
 | `relayer/src/routes/deposit.ts` | Deposit relay (private deposit) |
 | `relayer/src/routes/credit.ts` | Credit claim + withdraw relay |
+| `relayer/src/routes/pool.ts` | MAX PRIVACY deposit relay (create_drop_to_pool) |
+| `relayer/src/routes/pool-claim.ts` | Gasless V3 pool claim relay (claim_from_note_pool) |
 
 ---
 
@@ -945,7 +1053,7 @@ anchor idl upgrade GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU \
 
 1. **~0.2 SOL stuck in legacy sol_vault.** Orphaned after treasury migration. No admin_sweep instruction.
 
-2. **Anonymity set is small.** Vault has ~163 leaves on devnet. Seeder running 24/7 on Jetson adds 15–30 drops/day with diverse amounts.
+2. **Anonymity set is small.** Vault has ~230+ leaves on devnet. Seeder running 24/7 on Jetson adds 15–30 drops/day with diverse amounts.
 
 3. **No SPL token support.** Only SOL.
 
@@ -953,13 +1061,13 @@ anchor idl upgrade GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU \
 
 5. **No QR codes, burn links, or history page.** Core flow only.
 
-6. **Deposit amount still visible.** The `create_drop` CPI transfer reveals the deposit amount. This is fundamental — SOL must physically move. The credit note model hides the amount at claim time and decorrelates it at withdraw time, but the deposit itself is public.
+6. **Deposit amount still visible.** The `create_drop` CPI transfer reveals the deposit amount. This is fundamental — SOL must physically move. The credit note model hides the amount at claim time and decorrelates it at withdraw time, but the deposit itself is public. `create_drop_to_pool` has the same deposit-time visibility.
 
 7. **Relayer deployed on Jetson behind a Cloudflare tunnel.** Production-ready for the current scale. Migration to a public VPS is not blocking.
 
-8. **Frontend does not yet surface revoke.** The `revoke_drop` instruction is live on-chain, but `/drop/create` does not yet pass the optional `depositor` + `deposit_receipt` accounts and there is no UI for listing/revoking a user's unclaimed drops. Legacy 5-account `create_drop` path remains the default until the frontend is updated.
+8. **~~Frontend does not yet surface revoke.~~** RESOLVED (2026-04-23). `/drop/create` exposes the revoke toggle (7-account `create_drop` with `DepositReceipt` creation). `/drop/manage` lists a user's stored receipts with revoke + close_receipt actions and a snapshot-staleness badge.
 
-9. **IDL is stale vs deployed binary.** The hand-written IDL (`program/idl/darkdrop.json`, v0.3.0) declares 8 instructions, but the deployed program exposes 13. Missing from IDL: `create_treasury`, `admin_sweep`, `migrate_vault`, `revoke_drop`, `close_receipt`. Block explorers and Anchor-based SDK clients cannot decode calls to these instructions — the frontend hardcodes discriminators instead. Fix: regenerate the IDL to include all 13 instructions and run `anchor idl upgrade` against the deployed program.
+9. **IDL is stale vs deployed binary.** The hand-written IDL (`program/idl/darkdrop.json`, v0.3.0) declares 13 instructions; the deployed program exposes 18. Still missing from IDL: `create_treasury`, `admin_sweep`, `migrate_vault`, `revoke_drop`, `close_receipt` (all pre-existing gaps; schema v2 and note-pool sessions added their new instructions to the IDL). Block explorers and Anchor-based SDK clients cannot decode calls to those 5 instructions — the frontend hardcodes discriminators instead. Fix: add the 5 remaining instructions to the hand-written IDL and run `anchor idl upgrade` against the deployed program.
 
 ---
 
@@ -975,8 +1083,11 @@ anchor idl upgrade GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU \
 - Commitment binding via **Poseidon hash** (computationally hiding + binding)
 - Commitment re-randomization via **salt** (on-chain commitments cannot be matched to deposit data)
 - **Recursive privacy** via Note Pool (second-layer Merkle mixer for credit notes)
-- **Dishonest leaf elimination** at pool layer (program constructs pool leaves with verified amounts)
+- **One-TX pool entry** via `create_drop_to_pool` — eliminates the 3-TX temporal correlation of compose-three-ixs pool deposits
+- **Dishonest leaf elimination** at pool layer (program constructs pool leaves with verified amounts — same property whether entering via `deposit_to_note_pool` or `create_drop_to_pool`)
 - Depositor fallback via **30-day revoke path** for unclaimed drops (sender-keyed, preimage-verified, shares nullifier namespace with claim so double-spend is impossible)
+- **Extended root history** (256 slots, schema v2) — claim-code snapshots remain verifiable on-chain for ~1–2 weeks of devnet activity before rotating out
+- **Authority rotation** via propose/accept sidecar PDA — no Vault realloc, single-proposal invariant, new authority must sign acceptance
 
 ---
 
