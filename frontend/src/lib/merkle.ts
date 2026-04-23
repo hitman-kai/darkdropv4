@@ -269,6 +269,18 @@ const TREE_ACCOUNT_ROOT_OFFSET = 8 + 32 + 4 + 4; // 48
 const TREE_LAYOUT_V1 = { size: 1680, rootHistorySize: 30, filledSubtreesOffset: 48 + 32 + 30 * 32 };
 const TREE_LAYOUT_V2 = { size: 8912, rootHistorySize: 256, filledSubtreesOffset: 48 + 32 + 256 * 32 };
 
+// Exposed for UI staleness warnings. Reflects the current on-chain layout
+// after the schema v2 migration.
+export const CURRENT_ROOT_HISTORY_SIZE = TREE_LAYOUT_V2.rootHistorySize;
+
+/**
+ * Read next_index (u32 LE at offset 40) from any version of the tree
+ * account. The header layout is identical across v1/v2.
+ */
+export function readTreeNextIndex(treeData: Uint8Array): number {
+  return new DataView(treeData.buffer, treeData.byteOffset, treeData.byteLength).getUint32(40, true);
+}
+
 function detectTreeLayout(treeData: Uint8Array) {
   if (treeData.length === TREE_LAYOUT_V2.size) return TREE_LAYOUT_V2;
   if (treeData.length === TREE_LAYOUT_V1.size) return TREE_LAYOUT_V1;

@@ -18,8 +18,9 @@ import {
   removeLocalReceipt,
   fetchReceipt,
 } from "@/lib/receipt";
-import { getNullifierPDA } from "@/lib/vault";
+import { getNullifierPDA, getVaultPDA, getMerkleTreePDA } from "@/lib/vault";
 import { buildRevokeDropIx, buildCloseReceiptIx } from "@/lib/revoke";
+import { CURRENT_ROOT_HISTORY_SIZE, readTreeNextIndex } from "@/lib/merkle";
 
 type Status = "pending" | "revokable" | "claimed" | "resolved" | "unknown";
 
@@ -78,10 +79,34 @@ function shortLeaf(hex: string): string {
   return hex.slice(0, 8) + "…" + hex.slice(-6);
 }
 
+interface SnapshotStaleness {
+  depositsAfter: number;
+  remaining: number;
+  level: "ok" | "warn" | "expired";
+}
+
+// Warn when the claim code's embedded tree snapshot is within this many
+// deposits of rotating out of the on-chain root_history buffer.
+const STALENESS_WARN_WINDOW = 64;
+
+function computeStaleness(
+  leafIndex: number,
+  treeNextIndex: number | null
+): SnapshotStaleness | null {
+  if (treeNextIndex === null) return null;
+  const depositsAfter = Math.max(0, treeNextIndex - 1 - leafIndex);
+  const remaining = CURRENT_ROOT_HISTORY_SIZE - depositsAfter;
+  let level: SnapshotStaleness["level"] = "ok";
+  if (remaining <= 0) level = "expired";
+  else if (remaining <= STALENESS_WARN_WINDOW) level = "warn";
+  return { depositsAfter, remaining, level };
+}
+
 export default function ManageDropsPage() {
   const { publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
   const [rows, setRows] = useState<EnrichedReceipt[]>([]);
+  const [treeNextIndex, setTreeNextIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [busyLeaf, setBusyLeaf] = useState<string | null>(null);
   const [notice, setNotice] = useState<string>("");
@@ -97,10 +122,22 @@ export default function ManageDropsPage() {
     try {
       await initPoseidon();
       const stored = listLocalReceipts(publicKey.toBase58());
-      const enriched = await Promise.all(
-        stored.map((s) => enrichReceipt(connection, s))
-      );
+
+      // Fetch merkle tree next_index once for the whole page; used to
+      // compute snapshot staleness per-row.
+      const [vault] = getVaultPDA();
+      const [merkleTree] = getMerkleTreePDA(vault);
+      const treePromise = connection
+        .getAccountInfo(merkleTree)
+        .then((info) => (info ? readTreeNextIndex(info.data) : null))
+        .catch(() => null);
+
+      const [enriched, nextIdx] = await Promise.all([
+        Promise.all(stored.map((s) => enrichReceipt(connection, s))),
+        treePromise,
+      ]);
       setRows(enriched);
+      setTreeNextIndex(nextIdx);
     } catch (e: any) {
       setError(e.message || "Failed to load receipts");
     } finally {
@@ -234,6 +271,10 @@ export default function ManageDropsPage() {
             {rows.map((row) => {
               const secondsToRevoke = Math.max(0, row.revokableAt - now);
               const amountSol = (Number(row.stored.amountLamports) / 1e9).toFixed(5);
+              const staleness = computeStaleness(row.stored.leafIndex, treeNextIndex);
+              const showStaleness =
+                staleness !== null &&
+                (row.status === "pending" || row.status === "revokable");
               return (
                 <div key={row.stored.leafHex} className="arcade-panel">
                   <div className="arcade-panel-header justify-between">
@@ -271,6 +312,32 @@ export default function ManageDropsPage() {
                         {new Date(row.stored.createdAt * 1000).toLocaleString()}
                       </span>
                     </div>
+
+                    {showStaleness && staleness && (
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-[rgba(224,224,224,0.4)]">CLAIM WINDOW</span>
+                        <span className={`font-mono ${
+                          staleness.level === "expired" ? "text-[var(--danger)]" :
+                          staleness.level === "warn" ? "text-[rgba(255,200,0,0.85)]" :
+                          "text-[rgba(224,224,224,0.7)]"
+                        }`}>
+                          {staleness.level === "expired"
+                            ? "EXPIRED — RECIPIENT CAN NO LONGER CLAIM"
+                            : `${staleness.remaining} DEPOSITS LEFT`}
+                        </span>
+                      </div>
+                    )}
+
+                    {showStaleness && staleness?.level === "warn" && (
+                      <p className="text-[10px] leading-relaxed text-[rgba(255,200,0,0.55)]">
+                        Claim code&apos;s snapshot rotates out of on-chain root history soon. Ask the recipient to claim promptly, or revoke after the time-lock.
+                      </p>
+                    )}
+                    {showStaleness && staleness?.level === "expired" && (
+                      <p className="text-[10px] leading-relaxed text-[rgba(255,0,68,0.6)]">
+                        The claim code can no longer verify on-chain. Wait out the 30-day lock and revoke to reclaim the SOL.
+                      </p>
+                    )}
 
                     <div className="flex flex-wrap gap-2 pt-2">
                       {row.status === "revokable" && (
