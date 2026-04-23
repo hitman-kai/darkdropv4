@@ -23,6 +23,11 @@ import {
 import { decodeClaimCode } from "@/lib/claim-code";
 import { generateClaimProofV2 } from "@/lib/proof";
 import {
+  IncrementalMerkleTree,
+  buildProofFromSnapshot,
+  decodeTreeSnapshot,
+} from "@/lib/merkle";
+import {
   PROGRAM_ID,
   getVaultPDA,
   getMerkleTreePDA,
@@ -107,7 +112,7 @@ export default function ClaimPage() {
         claimCode,
         (encryption === "aes" || encryption === "pbkdf2") ? password : undefined
       );
-      const { secret, nullifier, amount, blindingFactor, leafIndex } =
+      const { secret, nullifier, amount, blindingFactor, leafIndex, pathSnapshot } =
         decoded.payload;
 
       const amountSol = Number(amount) / 1e9;
@@ -125,40 +130,36 @@ export default function ClaimPage() {
         : 0n;
       const pwdHash = computePasswordHash(pwdBigint);
 
-      // Step 2: Fetch on-chain Merkle tree and build proof path
+      // Step 2: Build the Merkle proof. Prefer the snapshot embedded in the
+      // claim code — zero RPC calls. Fall back to event-log replay only for
+      // legacy claim codes without a snapshot (slow, may hit RPC limits).
       setStage("merkle");
 
       const [vault] = getVaultPDA();
       const [merkleTree] = getMerkleTreePDA(vault);
 
-      const treeAccount = await connection.getAccountInfo(merkleTree);
-      if (!treeAccount) throw new Error("Failed to read Merkle tree account");
+      let pathElements: bigint[];
+      let pathIndices: number[];
+      let merkleRootBigInt: bigint;
 
-      const treeData = treeAccount.data;
-
-      const onChainRoot = treeData.slice(8 + 32 + 4 + 4, 8 + 32 + 4 + 4 + 32);
-      const filledSubtreesOffset = 8 + 32 + 4 + 4 + 32 + 30 * 32;
-
-      const zeroHashes = computeZeroHashes();
-      const pathElements: bigint[] = [];
-      const pathIndices: number[] = [];
-      let idx = leafIndex;
-      for (let i = 0; i < MERKLE_DEPTH; i++) {
-        const bit = idx & 1;
-        pathIndices.push(bit);
-        if (bit === 0) {
-          pathElements.push(zeroHashes[i]);
-        } else {
-          const subtreeBytes = treeData.slice(
-            filledSubtreesOffset + i * 32,
-            filledSubtreesOffset + (i + 1) * 32
-          );
-          pathElements.push(bytes32BEToBigint(subtreeBytes));
-        }
-        idx = idx >> 1;
+      if (pathSnapshot) {
+        const snap = decodeTreeSnapshot(pathSnapshot);
+        const proof = buildProofFromSnapshot(snap, leafIndex);
+        pathElements = proof.pathElements;
+        pathIndices = proof.pathIndices;
+        merkleRootBigInt = proof.root;
+      } else {
+        const proof = await IncrementalMerkleTree.fromOnChainEvents(
+          connection,
+          merkleTree,
+          leafIndex
+        );
+        pathElements = proof.pathElements;
+        pathIndices = proof.pathIndices;
+        merkleRootBigInt = proof.root;
       }
 
-      const merkleRootBigInt = bytes32BEToBigint(onChainRoot);
+      const onChainRoot = bigintToBytes32BE(merkleRootBigInt);
 
       // Step 3: Generate ZK proof (V2 — amount is PRIVATE)
       setStage("proving");

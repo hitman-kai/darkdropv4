@@ -40,6 +40,8 @@ export default function Navbar() {
         <div className="w-px h-5 bg-[var(--border-dim)]" />
         <Link href="/drop/claim" className={linkClass("/drop/claim")}>CLAIM</Link>
         <div className="w-px h-5 bg-[var(--border-dim)]" />
+        <Link href="/drop/manage" className={linkClass("/drop/manage")}>MANAGE</Link>
+        <div className="w-px h-5 bg-[var(--border-dim)]" />
         <Link href="/docs" className={linkClass("/docs")}>DOCS</Link>
       </div>
 

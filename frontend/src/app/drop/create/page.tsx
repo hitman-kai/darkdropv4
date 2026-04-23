@@ -18,7 +18,14 @@ import {
   PROGRAM_ID,
 } from "@/lib/vault";
 import { encodeClaimCode } from "@/lib/claim-code";
+import { snapshotTreeAccount } from "@/lib/merkle";
 import { RELAYER_URL, checkRelayerHealth } from "@/lib/relayer";
+import {
+  getReceiptPDA,
+  saveReceipt,
+  bytesToHex,
+  bigintToHex32,
+} from "@/lib/receipt";
 
 type Stage = "input" | "confirming" | "done" | "error";
 type DepositMode = "direct" | "private";
@@ -35,10 +42,12 @@ export default function CreateDropPage() {
   const [amount, setAmount] = useState("");
   const [password, setPassword] = useState("");
   const [depositMode, setDepositMode] = useState<DepositMode>("direct");
+  const [enableRevoke, setEnableRevoke] = useState(false);
   const [stage, setStage] = useState<Stage>("input");
   const [claimCode, setClaimCode] = useState("");
   const [error, setError] = useState("");
   const [txSig, setTxSig] = useState("");
+  const [receiptSaved, setReceiptSaved] = useState(false);
   const [relayerOnline, setRelayerOnline] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -65,8 +74,14 @@ export default function CreateDropPage() {
       return;
     }
 
+    if (enableRevoke && depositMode === "private") {
+      setError("Revoke option requires direct deposit (your wallet must sign as depositor).");
+      return;
+    }
+
     setStage("confirming");
     setError("");
+    setReceiptSaved(false);
 
     try {
       const lamports = BigInt(Math.round(solAmount * 1e9));
@@ -140,15 +155,27 @@ export default function CreateDropPage() {
         ixData.set(dropResult.amountCommitment, offset); offset += 32;
         ixData.set(dropResult.passwordHash, offset);
 
+        const keys = [
+          { pubkey: vault, isSigner: false, isWritable: true },
+          { pubkey: merkleTree, isSigner: false, isWritable: true },
+          { pubkey: treasury, isSigner: false, isWritable: true },
+          { pubkey: publicKey, isSigner: true, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ];
+
+        if (enableRevoke) {
+          // 7-account path: append depositor + deposit_receipt PDA.
+          // Depositor == connected wallet (I-02: never let another signer be depositor).
+          const [receiptPda] = getReceiptPDA(dropResult.leaf);
+          keys.push(
+            { pubkey: publicKey, isSigner: true, isWritable: true },
+            { pubkey: receiptPda, isSigner: false, isWritable: true },
+          );
+        }
+
         const createDropIx = new TransactionInstruction({
           programId: PROGRAM_ID,
-          keys: [
-            { pubkey: vault, isSigner: false, isWritable: true },
-            { pubkey: merkleTree, isSigner: false, isWritable: true },
-            { pubkey: treasury, isSigner: false, isWritable: true },
-            { pubkey: publicKey, isSigner: true, isWritable: true },
-            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-          ],
+          keys,
           data: Buffer.from(ixData),
         });
 
@@ -157,16 +184,17 @@ export default function CreateDropPage() {
         await connection.confirmTransaction(sig, "confirmed");
       }
 
-      // Read the leaf index from the on-chain Merkle tree
+      // Read the leaf index from the on-chain Merkle tree AND snapshot
+      // root + filled_subtrees so the claim doesn't have to scan events.
       const treeAccount = await connection.getAccountInfo(merkleTree);
       if (!treeAccount) throw new Error("Failed to read Merkle tree account");
 
-      // Layout: discriminator(8) + vault(32) + next_index(u32 LE at offset 40)
       const nextIndex = new DataView(
         treeAccount.data.buffer,
         treeAccount.data.byteOffset
       ).getUint32(8 + 32, true);
       const leafIndex = nextIndex - 1;
+      const pathSnapshot = snapshotTreeAccount(treeAccount.data);
 
       // Encode claim code
       const code = await encodeClaimCode(
@@ -174,11 +202,29 @@ export default function CreateDropPage() {
           ...dropResult.claimPayload,
           leafIndex,
           vaultAddress: vault.toBase58(),
+          pathSnapshot,
         },
         "devnet",
         "sol",
         password || undefined
       );
+
+      if (enableRevoke) {
+        saveReceipt({
+          leafHex: bytesToHex(dropResult.leaf),
+          leafIndex,
+          amountLamports: lamports.toString(),
+          depositor: publicKey.toBase58(),
+          createdAt: Math.floor(Date.now() / 1000),
+          cluster: "devnet",
+          vaultAddress: vault.toBase58(),
+          secretHex: bigintToHex32(dropResult.claimPayload.secret),
+          nullifierHex: bigintToHex32(dropResult.claimPayload.nullifier),
+          blindingHex: bigintToHex32(dropResult.claimPayload.blindingFactor),
+          txSig: sig,
+        });
+        setReceiptSaved(true);
+      }
 
       setClaimCode(code);
       setTxSig(sig);
@@ -300,13 +346,13 @@ export default function CreateDropPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => relayerOnline && setDepositMode("private")}
-                      disabled={!relayerOnline}
+                      onClick={() => relayerOnline && !enableRevoke && setDepositMode("private")}
+                      disabled={!relayerOnline || enableRevoke}
                       className={`flex w-full items-start gap-3 border-2 p-4 text-left transition-all !shadow-none ${
                         depositMode === "private"
                           ? "border-[var(--accent-dim)] bg-[rgba(0,255,65,0.04)]"
                           : "border-[var(--border-dim)] hover:border-[var(--border)]"
-                      } ${!relayerOnline ? "opacity-40 !cursor-not-allowed" : ""}`}
+                      } ${(!relayerOnline || enableRevoke) ? "opacity-40 !cursor-not-allowed" : ""}`}
                     >
                       <span className={`mt-0.5 flex h-4 w-4 items-center justify-center border-2 ${
                         depositMode === "private"
@@ -330,6 +376,47 @@ export default function CreateDropPage() {
                   </div>
                 </div>
 
+                {/* Enable revoke */}
+                <div className="arcade-panel">
+                  <div className="arcade-panel-header">
+                    <span className="arcade-dot" />
+                    <span className="font-mono text-[9px] tracking-[0.28em] text-[rgba(224,224,224,0.3)]">REVOKE OPTION</span>
+                  </div>
+                  <div className="arcade-panel-body">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !enableRevoke;
+                        setEnableRevoke(next);
+                        if (next) setDepositMode("direct");
+                      }}
+                      className={`flex w-full items-start gap-3 border-2 p-4 text-left transition-all !shadow-none ${
+                        enableRevoke
+                          ? "border-[var(--accent-dim)] bg-[rgba(0,255,65,0.04)]"
+                          : "border-[var(--border-dim)] hover:border-[var(--border)]"
+                      }`}
+                    >
+                      <span className={`mt-0.5 flex h-4 w-4 items-center justify-center border-2 ${
+                        enableRevoke
+                          ? "border-[var(--accent)]"
+                          : "border-[rgba(224,224,224,0.2)]"
+                      }`}>
+                        {enableRevoke && <span className="block h-2 w-2 bg-[var(--accent)]" />}
+                      </span>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className={`font-mono text-[10px] tracking-[0.12em] font-semibold ${
+                            enableRevoke ? "text-[var(--accent)]" : "text-[rgba(224,224,224,0.5)]"
+                          }`}>ENABLE REVOKE (30-DAY LOCK)</span>
+                        </div>
+                        <p className="mt-1 text-[10px] leading-relaxed text-[rgba(224,224,224,0.3)]">
+                          Creates a DepositReceipt so you can reclaim the drop if it is never claimed. Privacy cost: your wallet is linked on-chain to this (leaf, amount). Forces direct deposit.
+                        </p>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
                 {error && (
                   <div className="border-2 border-[rgba(255,0,68,0.3)] bg-[rgba(255,0,68,0.04)] px-5 py-3 shadow-[2px_2px_0_rgba(255,0,68,0.2)]">
                     <p className="text-xs text-[var(--danger)] font-semibold">{error}</p>
@@ -341,7 +428,7 @@ export default function CreateDropPage() {
                   disabled={!amount}
                   className="arcade-btn-primary w-full py-3.5 font-mono text-[10px] tracking-[0.2em]"
                 >
-                  {depositMode === "private" ? "PRIVATE DEPOSIT" : "CREATE DROP"}
+                  {depositMode === "private" ? "PRIVATE DEPOSIT" : enableRevoke ? "CREATE DROP + RECEIPT" : "CREATE DROP"}
                 </button>
               </>
             )}
@@ -390,12 +477,21 @@ export default function CreateDropPage() {
               </p>
             </div>
 
+            {receiptSaved && (
+              <div className="border-2 border-[rgba(0,255,65,0.2)] bg-[rgba(0,255,65,0.03)] px-5 py-3">
+                <p className="text-[10px] leading-relaxed text-[rgba(224,224,224,0.55)]">
+                  Revoke receipt saved to this browser. If the drop is not claimed, you can reclaim it after 30 days from <a href="/drop/manage" className="text-[var(--accent)] hover:underline">/drop/manage</a>. The preimage lives only in this browser — back it up if you switch devices.
+                </p>
+              </div>
+            )}
+
             <button
               onClick={() => {
                 setStage("input");
                 setAmount("");
                 setPassword("");
                 setClaimCode("");
+                setReceiptSaved(false);
               }}
               className="arcade-btn-ghost w-full py-3 font-mono text-[10px] tracking-[0.15em]"
             >

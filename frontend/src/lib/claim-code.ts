@@ -31,6 +31,12 @@ export interface ClaimCodePayload {
   blindingFactor: bigint;
   leafIndex: number;
   vaultAddress: string;
+  // Base64url-encoded 672 bytes: root(32) || filled_subtrees[20 * 32].
+  // Snapshotted immediately after create_drop so the claim works without
+  // scanning event logs. Must be used within ROOT_HISTORY_SIZE=30 later
+  // deposits — after that the snapshot root is rotated out of root_history.
+  // Optional for backward compatibility with pre-snapshot claim codes.
+  pathSnapshot?: string;
 }
 
 export interface ClaimCode {
@@ -58,6 +64,7 @@ export async function encodeClaimCode(
     b: bigintToBase58(payload.blindingFactor),
     i: payload.leafIndex,
     v: payload.vaultAddress,
+    ...(payload.pathSnapshot ? { p: payload.pathSnapshot } : {}),
   });
 
   if (password) {
@@ -123,6 +130,7 @@ export async function decodeClaimCode(
       blindingFactor: base58ToBigint(parsed.b),
       leafIndex: parsed.i,
       vaultAddress: parsed.v,
+      pathSnapshot: parsed.p,
     },
   };
 }
