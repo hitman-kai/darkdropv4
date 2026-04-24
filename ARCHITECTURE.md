@@ -388,6 +388,19 @@ WITHDRAW (withdraw_credit — same as before):
 | `initialize_note_pool` | vault, note_pool, note_pool_tree, authority, system_program | none | Creates NotePool + NotePoolTree PDAs. Authority only. |
 | `deposit_to_note_pool` | vault, note_pool, note_pool_tree, credit_note, recipient, payer, system_program | nullifier_hash, opening (72 bytes), pool_params (96 bytes) | Opens credit note, constructs pool leaf with verified amount, inserts into pool tree, closes credit note. |
 | `claim_from_note_pool` | vault, note_pool, note_pool_tree, credit_note, pool_nullifier, recipient, payer, system_program | pool_nullifier_hash, proof (ProofData), inputs (64 bytes) | Verifies V3 proof, creates fresh CreditNote PDA, creates pool nullifier PDA. |
+| `create_drop_to_pool` | vault, note_pool, note_pool_tree, treasury, sender, system_program | amount (u64), pool_params (96 bytes) | One-TX equivalent of `create_drop` → `claim_credit` → `deposit_to_note_pool`. Sender CPI-transfers SOL; program constructs pool leaf on-chain with the verified amount. No CreditNote intermediate. |
+
+#### Revoke trade-off for pool deposits (Audit #5 L-03)
+
+**Pool deposits cannot be revoked.** There is no `revoke_pool_drop` instruction, and `create_drop_to_pool` does not accept a `DepositReceipt`. If the depositor loses the 96-byte `pool_params` (pool_secret + pool_nullifier + pool_blinding) before the recipient claims, the SOL is permanently locked in the treasury — counted toward `total_deposited`, protected from `admin_sweep`, but unreachable.
+
+This is a deliberate design trade-off:
+
+- A hypothetical `PoolDepositReceipt` keyed by `pool_leaf` would work cryptographically (the depositor could prove preimage knowledge after a time-lock), but it would permanently link depositor ↔ pool_leaf ↔ amount on-chain — the same deposit-side privacy cost documented for base-layer `DepositReceipt` under "Privacy cost of revoking" above.
+- The base-layer `create_drop` path still supports opt-in `DepositReceipt` for revokability, so depositors who want the fallback should use DIRECT or PRIVATE deposit, not MAX PRIVACY.
+- Audit #4 I-01 accepted this as the expected behaviour of the note pool layer; Audit #5 L-03 re-affirmed the trade-off after `create_drop_to_pool` collapsed the flow into a single TX (removing the intermediate state in which a user could previously have abandoned the deposit before it landed in the pool).
+
+**Guidance for pool-mode depositors:** save the claim code immediately and verify it decodes cleanly before closing the deposit tab. The frontend's `/drop/create` page surfaces this warning when MAX PRIVACY is selected.
 
 ### 14. Revoke instruction for unclaimed drops
 

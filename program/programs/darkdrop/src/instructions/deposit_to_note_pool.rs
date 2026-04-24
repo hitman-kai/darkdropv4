@@ -10,8 +10,10 @@ use crate::merkle_tree::note_pool_tree_append;
 /// and provides pool_secret, pool_nullifier, pool_blinding for the new pool leaf.
 ///
 /// CRITICAL: The program constructs the pool leaf ON-CHAIN using the VERIFIED amount.
-/// pool_leaf = Poseidon(Poseidon(pool_secret, pool_nullifier), Poseidon(verified_amount, pool_blinding))
-/// This is a 2-level hash tree to keep Poseidon inputs at width 2 (most efficient).
+/// pool_leaf = Poseidon4(pool_secret, pool_nullifier, verified_amount, pool_blinding)
+/// Single Poseidon call with arity 4 via `poseidon_hash_4`. Must match the V3
+/// circuit's leaf constraint exactly (see circuits/note_pool.circom) — any change
+/// here breaks proof verification for the entire pool.
 ///
 /// This eliminates the dishonest leaf problem (Audit I-01): the user cannot lie about
 /// the amount because the program opens and verifies the credit note commitment first.

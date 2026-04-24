@@ -43,10 +43,10 @@ This directory contains all security audit reports for the DarkDrop V4 Solana pr
 | Malicious relayer can set depositor = relayer in receipt | #4 I-02 | INFO | **Trust model** | Frontend/client-lib guardrail |
 | groth16-solana 0.0.3 pre-release | #2 / #3 I-02 / #4 I-03 | INFO | **Pinned in Cargo.lock** | Consider upgrade or vendoring |
 | Redundant fee_recipient after H-01/M-01 fixes | #3 I-04 / #4 I-04 | INFO | **FIXED** | `fee_recipient` account removed from `claim` and `withdraw_credit`; fee credits `payer` directly. Frontend + relayer ABI updated. |
-| `migrate_schema_v2` emits no event | #5 L-02 | LOW | **Open** | Add `SchemaV2MigrationCompleted` event for indexer/observability parity with `TreasurySweep`. |
-| `create_drop_to_pool` has no revoke option | #5 L-03 | LOW | **Doc-only (accepted design, same class as #4 I-01)** | Update `ARCHITECTURE.md` + `/drop/create` UI to warn that pool-path deposits cannot be revoked. |
-| `deposit_to_note_pool` doc misdescribes leaf hashing | #5 I-01 | INFO | **Open** | Doc comment says "2-level hash tree" but code uses single `poseidon_hash_4`. Fix comment to prevent edit-trap. |
-| `migrate_schema_v2` byte-order invariant uncommented | #5 I-02 | INFO | **Open** | Pin the "loop-must-precede-filled_subtrees-copy AND cover full slot range" invariant in a comment. |
+| `migrate_schema_v2` emits no event | #5 L-02 | LOW | **FIXED** | `SchemaV2MigrationCompleted` event added with `merkle_tree_migrated` / `note_pool_tree_migrated` booleans + timestamp. Emits only when ≥1 tree was rewritten (pure no-op calls stay silent). Deployed TX `dKN4cKD4…qaW`. |
+| `create_drop_to_pool` has no revoke option | #5 L-03 | LOW | **FIXED (doc-only, accepted design)** | Amber "NO REVOKE PATH" warning added to `/drop/create` when MAX PRIVACY is selected. New "Revoke trade-off for pool deposits" subsection in `ARCHITECTURE.md` §13 spells out the permanence and the reason a `PoolDepositReceipt` was rejected. |
+| `deposit_to_note_pool` doc misdescribes leaf hashing | #5 I-01 | INFO | **FIXED** | Doc updated: `pool_leaf = Poseidon4(pool_secret, pool_nullifier, verified_amount, pool_blinding)` with an explicit note that any change breaks V3 proof verification. |
+| `migrate_schema_v2` byte-order invariant uncommented | #5 I-02 | INFO | **FIXED** | Long invariant comment added above the root-history seeding loop explaining why it must run before the `filled_subtrees` copy and must cover the full `V1..N` range (regression trap for future refactors). |
 
 ---
 

@@ -475,6 +475,15 @@ export default function CreateDropPage() {
                   </div>
                 </div>
 
+                {depositMode === "pool" && (
+                  <div className="border-2 border-[rgba(255,200,0,0.3)] bg-[rgba(255,200,0,0.04)] px-4 py-3">
+                    <p className="font-mono text-[10px] leading-relaxed text-[rgba(255,200,0,0.85)]">
+                      <span className="font-semibold tracking-[0.12em]">NO REVOKE PATH.</span>{" "}
+                      <span className="text-[rgba(255,200,0,0.7)]">Pool deposits cannot be reclaimed. Lose the claim code and the SOL is permanently locked in the treasury — there is no time-lock fallback, unlike DIRECT / PRIVATE deposits.</span>
+                    </p>
+                  </div>
+                )}
+
                 {/* Enable revoke */}
                 <div className="arcade-panel">
                   <div className="arcade-panel-header">

@@ -29,19 +29,31 @@ pub fn handle_migrate_schema_v2(ctx: Context<MigrateSchemaV2>) -> Result<()> {
         DarkDropError::UnauthorizedWithdraw
     );
 
-    migrate_one_tree(
+    let main_migrated = migrate_one_tree(
         &ctx.accounts.merkle_tree,
         &ctx.accounts.authority,
         &ctx.accounts.system_program,
         "merkle_tree",
     )?;
 
-    migrate_one_tree(
+    let pool_migrated = migrate_one_tree(
         &ctx.accounts.note_pool_tree,
         &ctx.accounts.authority,
         &ctx.accounts.system_program,
         "note_pool_tree",
     )?;
+
+    // Only emit when at least one tree was actually rewritten — a pure
+    // no-op call (both trees already at NEW_TREE_SIZE) shouldn't pollute
+    // event logs.
+    if main_migrated || pool_migrated {
+        emit!(SchemaV2MigrationCompleted {
+            authority: authority_key,
+            merkle_tree_migrated: main_migrated,
+            note_pool_tree_migrated: pool_migrated,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+    }
 
     msg!("schema_v2 migration complete");
     Ok(())
@@ -50,13 +62,14 @@ pub fn handle_migrate_schema_v2(ctx: Context<MigrateSchemaV2>) -> Result<()> {
 /// Migrate a single zero-copy tree account (MerkleTreeAccount or NotePoolTree
 /// — both share the same byte layout) from ROOT_HISTORY_SIZE_V1=30 to 256.
 ///
-/// Idempotent per-account: returns Ok(()) if already at NEW_TREE_SIZE.
+/// Returns Ok(true) if bytes were written, Ok(false) if the account was
+/// already at NEW_TREE_SIZE and the call was a no-op. Idempotent per-account.
 fn migrate_one_tree<'info>(
     tree_info: &AccountInfo<'info>,
     authority: &Signer<'info>,
     system_program: &Program<'info, System>,
     label: &str,
-) -> Result<()> {
+) -> Result<bool> {
     let current_len = tree_info.data_len();
 
     // Compute the two expected sizes from the const so they stay in lockstep
@@ -74,7 +87,7 @@ fn migrate_one_tree<'info>(
 
     if current_len == NEW_TREE_SIZE {
         msg!("{}: already migrated", label);
-        return Ok(());
+        return Ok(false);
     }
     require!(current_len == OLD_TREE_SIZE, DarkDropError::InvalidAccountSize);
 
@@ -111,6 +124,19 @@ fn migrate_one_tree<'info>(
     // root, then stamp filled_subtrees into its new home. This also erases
     // the old filled_subtrees bytes that now sit in root_history slots
     // 30..~50.
+    //
+    // INVARIANT (Audit 05 I-02): the root-history seeding loop MUST run
+    // BEFORE the filled_subtrees copy below, AND MUST cover the full
+    // ROOT_HISTORY_SIZE_V1..ROOT_HISTORY_SIZE range (no next-stale-slot
+    // shortcut). Byte range [OLD_FILLED_SUBTREES_OFFSET..OLD_TREE_SIZE]
+    // in the new layout still contains the pre-realloc filled_subtrees
+    // bytes — realloc(zero_init=true) only zeros the newly-appended tail
+    // [OLD_TREE_SIZE..NEW_TREE_SIZE]. Overwriting the full V1..N range
+    // with ZERO_HASHES[MERKLE_DEPTH] is what scrubs those stale bytes
+    // AND seeds the extended root_history. Reordering or truncating
+    // this loop would leave stale filled_subtrees bytes sitting inside
+    // root_history slots 30..~50, where is_known_root would happily
+    // match them.
     {
         let mut data = tree_info.try_borrow_mut_data()?;
 
@@ -126,7 +152,7 @@ fn migrate_one_tree<'info>(
     }
 
     msg!("{}: migrated {} -> {} bytes", label, OLD_TREE_SIZE, NEW_TREE_SIZE);
-    Ok(())
+    Ok(true)
 }
 
 #[derive(Accounts)]
@@ -155,4 +181,12 @@ pub struct MigrateSchemaV2<'info> {
     pub authority: Signer<'info>,
 
     pub system_program: Program<'info, System>,
+}
+
+#[event]
+pub struct SchemaV2MigrationCompleted {
+    pub authority: Pubkey,
+    pub merkle_tree_migrated: bool,
+    pub note_pool_tree_migrated: bool,
+    pub timestamp: i64,
 }
