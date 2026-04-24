@@ -479,7 +479,7 @@ export default function CreateDropPage() {
                   <div className="border-2 border-[rgba(255,200,0,0.3)] bg-[rgba(255,200,0,0.04)] px-4 py-3">
                     <p className="font-mono text-[10px] leading-relaxed text-[rgba(255,200,0,0.85)]">
                       <span className="font-semibold tracking-[0.12em]">NO REVOKE PATH.</span>{" "}
-                      <span className="text-[rgba(255,200,0,0.7)]">Pool deposits cannot be reclaimed. Lose the claim code and the SOL is permanently locked in the treasury — there is no time-lock fallback, unlike DIRECT / PRIVATE deposits.</span>
+                      <span className="text-[rgba(255,200,0,0.7)]">Pool deposits cannot be reclaimed. Lose the claim code and the SOL is permanently locked — no time-lock fallback. Only DIRECT deposits with the revoke option enabled below can be reclaimed after 30 days.</span>
                     </p>
                   </div>
                 )}
@@ -518,7 +518,7 @@ export default function CreateDropPage() {
                           }`}>ENABLE REVOKE (30-DAY LOCK)</span>
                         </div>
                         <p className="mt-1 text-[10px] leading-relaxed text-[rgba(224,224,224,0.3)]">
-                          Creates a DepositReceipt so you can reclaim the drop if it is never claimed. Privacy cost: your wallet is linked on-chain to this (leaf, amount). Forces direct deposit.
+                          Reclaim unclaimed drops after a 30-day time-lock. DIRECT-only — PRIVATE and MAX PRIVACY are disabled here because a receipt needs the depositor as on-chain signer, which is incompatible with relayer-only submission. Privacy cost: links your wallet to (leaf, amount) on-chain.
                         </p>
                       </div>
                     </button>

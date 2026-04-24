@@ -397,7 +397,7 @@ WITHDRAW (withdraw_credit — same as before):
 This is a deliberate design trade-off:
 
 - A hypothetical `PoolDepositReceipt` keyed by `pool_leaf` would work cryptographically (the depositor could prove preimage knowledge after a time-lock), but it would permanently link depositor ↔ pool_leaf ↔ amount on-chain — the same deposit-side privacy cost documented for base-layer `DepositReceipt` under "Privacy cost of revoking" above.
-- The base-layer `create_drop` path still supports opt-in `DepositReceipt` for revokability, so depositors who want the fallback should use DIRECT or PRIVATE deposit, not MAX PRIVACY.
+- The base-layer `create_drop` path still supports opt-in `DepositReceipt` for revokability, but ONLY in DIRECT mode — PRIVATE (relayer-only) deposits cannot carry a receipt because the receipt's depositor must be an on-chain signer, which is incompatible with the relayer being the sole signer. Depositors who want the revoke fallback must accept that trade-off and use DIRECT + revoke. The UI enforces this: enabling REVOKE OPTION on `/drop/create` greys out both PRIVATE and MAX PRIVACY.
 - Audit #4 I-01 accepted this as the expected behaviour of the note pool layer; Audit #5 L-03 re-affirmed the trade-off after `create_drop_to_pool` collapsed the flow into a single TX (removing the intermediate state in which a user could previously have abandoned the deposit before it landed in the pool).
 
 **Guidance for pool-mode depositors:** save the claim code immediately and verify it decodes cleanly before closing the deposit tab. The frontend's `/drop/create` page surfaces this warning when MAX PRIVACY is selected.
