@@ -30,6 +30,13 @@ const AUDITS = [
     date: 'April 8, 2026',
     subtitle: 'Fix verification (H-01, M-01, L-03) + admin_sweep + full re-audit',
   },
+  {
+    src: path.join(__dirname, '..', 'audits', 'AUDIT-05-SCHEMA-V2-AND-POOL-DEPOSIT.md'),
+    dst: path.join(__dirname, '..', 'audits', 'AUDIT-05-SCHEMA-V2-AND-POOL-DEPOSIT.pdf'),
+    title: 'DarkDrop V4 — Security Audit #5: Schema v2 + One-TX Pool Deposit',
+    date: 'April 24, 2026',
+    subtitle: 'create_drop_to_pool + migrate_schema_v2 + authority_rotation + I-04/L-03-NEW fix verification',
+  },
 ];
 
 const PROGRAM_ID = 'GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU';
@@ -296,7 +303,20 @@ function generatePDF(audit) {
 }
 
 async function main() {
-  for (const audit of AUDITS) {
+  // Optional filter: `node generate-audit-pdfs.js 05` only regenerates audits
+  // whose filename contains "05". Lets us re-render a single audit without
+  // churning the older PDFs' binary bytes.
+  const filter = process.argv[2];
+  const queue = filter
+    ? AUDITS.filter(a => path.basename(a.dst).includes(filter))
+    : AUDITS;
+
+  if (filter && queue.length === 0) {
+    console.error(`No audits match filter "${filter}"`);
+    process.exit(1);
+  }
+
+  for (const audit of queue) {
     console.log(`Generating: ${path.basename(audit.dst)}`);
     await generatePDF(audit);
     const stat = fs.statSync(audit.dst);

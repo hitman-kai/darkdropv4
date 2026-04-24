@@ -29,6 +29,17 @@ pub const REVOKE_TIMEOUT: i64 = 5;
 #[cfg(not(feature = "short-revoke-timeout"))]
 pub const REVOKE_TIMEOUT: i64 = 2_592_000;
 
+// Delay between propose_authority_rotation and accept_authority_rotation.
+// Gives the current authority a 24-hour window to revoke a proposal if the
+// current signing key was compromised and used to propose a malicious
+// successor. Reuses the `short-revoke-timeout` feature gate so the same
+// localnet/devnet test flag shortens both admin-gated delays (Audit 05 L-01).
+#[cfg(feature = "short-revoke-timeout")]
+pub const ROTATION_DELAY: i64 = 5;
+
+#[cfg(not(feature = "short-revoke-timeout"))]
+pub const ROTATION_DELAY: i64 = 86_400;
+
 // Number of public inputs in the Groth16 proof
 // [merkle_root, nullifier_hash, recipient, amount_commitment, password_hash, amount]
 pub const NR_PUBLIC_INPUTS: usize = 6;

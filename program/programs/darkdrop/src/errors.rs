@@ -64,4 +64,7 @@ pub enum DarkDropError {
 
     #[msg("Signer does not match the proposed new authority")]
     PendingAuthorityMismatch,
+
+    #[msg("Authority rotation acceptance attempted before ROTATION_DELAY elapsed")]
+    RotationTooEarly,
 }

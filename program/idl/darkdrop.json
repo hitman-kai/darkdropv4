@@ -1768,6 +1768,11 @@
       "code": 6020,
       "name": "PendingAuthorityMismatch",
       "msg": "Signer does not match the proposed new authority"
+    },
+    {
+      "code": 6021,
+      "name": "RotationTooEarly",
+      "msg": "Authority rotation acceptance attempted before ROTATION_DELAY elapsed"
     }
   ],
   "types": [

@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
 use crate::errors::DarkDropError;
-use crate::state::{PendingAuthority, Vault};
+use crate::state::{PendingAuthority, Vault, ROTATION_DELAY};
 
 /// Propose a new vault authority. Creates the PendingAuthority sidecar
 /// PDA seeded by vault — only one pending proposal can exist at a time,
@@ -56,6 +56,15 @@ pub fn handle_accept_authority_rotation(
         ctx.accounts.pending_authority.new_authority == signer_key,
         DarkDropError::PendingAuthorityMismatch
     );
+
+    // Time-lock: block acceptance until ROTATION_DELAY seconds have elapsed
+    // since propose. Lets a legitimate authority detect and revoke a proposal
+    // made with a stolen key. saturating_sub defends against clock skew
+    // (post-propose timestamps older than proposed_at collapse to 0, which
+    // will simply fail the comparison and force a retry later).
+    let now = Clock::get()?.unix_timestamp;
+    let elapsed = now.saturating_sub(ctx.accounts.pending_authority.proposed_at);
+    require!(elapsed >= ROTATION_DELAY, DarkDropError::RotationTooEarly);
 
     let vault = &mut ctx.accounts.vault;
     let previous = vault.authority;
