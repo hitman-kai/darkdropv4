@@ -18,6 +18,7 @@ import {
   PROGRAM_ID,
 } from "@/lib/vault";
 import { encodeClaimCode } from "@/lib/claim-code";
+import AnonymitySetIndicator from "@/components/AnonymitySetIndicator";
 import { snapshotTreeAccount } from "@/lib/merkle";
 import { RELAYER_URL, checkRelayerHealth } from "@/lib/relayer";
 import { sendWithRetry } from "@/lib/send-with-retry";
@@ -47,10 +48,12 @@ export default function CreateDropPage() {
 
   const [amount, setAmount] = useState("");
   const [password, setPassword] = useState("");
+  const [recipientHint, setRecipientHint] = useState("");
   const [depositMode, setDepositMode] = useState<DepositMode>("direct");
   const [enableRevoke, setEnableRevoke] = useState(false);
   const [stage, setStage] = useState<Stage>("input");
   const [claimCode, setClaimCode] = useState("");
+  const [shareLink, setShareLink] = useState("");
   const [error, setError] = useState("");
   const [txSig, setTxSig] = useState("");
   const [receiptSaved, setReceiptSaved] = useState(false);
@@ -297,6 +300,15 @@ export default function CreateDropPage() {
       }
 
       setClaimCode(code);
+      // Build a shareable URL the recipient can click to auto-fill the claim
+      // form. The link encodes the same claim code that's displayed below — no
+      // extra privacy property, just a UX upgrade. When a recipient hint was
+      // provided we include it so the recipient page can flag a wallet mismatch.
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams({ code });
+        if (recipientHint.trim()) params.set("for", recipientHint.trim());
+        setShareLink(`${window.location.origin}/drop/claim?${params.toString()}`);
+      }
       setTxSig(sig);
       setStage("done");
     } catch (err: any) {
@@ -322,6 +334,7 @@ export default function CreateDropPage() {
 
         {(stage === "input" || stage === "error") ? (
           <div className="space-y-4">
+            <AnonymitySetIndicator />
             {!publicKey && (
               <div className="arcade-panel">
                 <div className="arcade-panel-body text-center text-sm text-[rgba(224,224,224,0.4)]">
@@ -368,6 +381,26 @@ export default function CreateDropPage() {
                     />
                     <p className="mt-2 text-[10px] leading-relaxed text-[rgba(224,224,224,0.3)]">
                       If set, the recipient must enter this password to claim. Enforced at the protocol level via ZK proof.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Recipient hint (paste-wallet UX) */}
+                <div className="arcade-panel">
+                  <div className="arcade-panel-header">
+                    <span className="arcade-dot" />
+                    <span className="font-mono text-[9px] tracking-[0.28em] text-[rgba(224,224,224,0.3)]">RECIPIENT WALLET (OPTIONAL)</span>
+                  </div>
+                  <div className="arcade-panel-body">
+                    <input
+                      type="text"
+                      value={recipientHint}
+                      onChange={(e) => setRecipientHint(e.target.value)}
+                      placeholder="Paste recipient's wallet address — produces a shareable claim link"
+                      className="w-full text-xs font-mono"
+                    />
+                    <p className="mt-2 text-[10px] leading-relaxed text-[rgba(224,224,224,0.3)]">
+                      Optional. The drop is still bearer (anyone with the link can claim). If filled, you'll get a shareable URL with the wallet hint baked in. Privacy is identical to sharing the raw claim code.
                     </p>
                   </div>
                 </div>
@@ -566,6 +599,31 @@ export default function CreateDropPage() {
 
             <CodeDisplay code={claimCode} />
 
+            {shareLink && (
+              <div className="arcade-panel">
+                <div className="arcade-panel-header">
+                  <span className="arcade-dot" />
+                  <span className="font-mono text-[9px] tracking-[0.28em] text-[rgba(224,224,224,0.3)]">SHAREABLE LINK</span>
+                </div>
+                <div className="arcade-panel-body space-y-2">
+                  <p className="break-all font-mono text-[10px] leading-relaxed text-[rgba(0,255,65,0.5)]">
+                    {shareLink}
+                  </p>
+                  <button
+                    onClick={() => {
+                      void navigator.clipboard.writeText(shareLink);
+                    }}
+                    className="arcade-btn-ghost px-4 py-2 font-mono text-[9px] tracking-[0.15em]"
+                  >
+                    COPY LINK
+                  </button>
+                  <p className="text-[10px] leading-relaxed text-[rgba(224,224,224,0.3)]">
+                    Send this link to the recipient instead of the raw claim code. Clicking it pre-fills the claim form.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {txSig && (
               <div className="text-center">
                 <a
@@ -598,7 +656,9 @@ export default function CreateDropPage() {
                 setStage("input");
                 setAmount("");
                 setPassword("");
+                setRecipientHint("");
                 setClaimCode("");
+                setShareLink("");
                 setReceiptSaved(false);
               }}
               className="arcade-btn-ghost w-full py-3 font-mono text-[10px] tracking-[0.15em]"

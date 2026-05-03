@@ -1,22 +1,24 @@
 # DarkDrop V4
 
-Unlinkable value transfer on Solana. DarkDrop uses Groth16 zero-knowledge proofs and an incremental Merkle tree to break every on-chain link between sender and receiver. The claim transaction contains zero decoded amounts and zero SOL movement. The withdrawal uses direct lamport manipulation -- no Transfer inner instruction, no CPI. The IDL reveals no amount-related field names to block explorers.
+Bearer-claim-code SOL drops on Solana with zero-knowledge sender↔recipient unlinkability. A Groth16 proof and re-randomized Poseidon commitments break the on-chain graph between deposit and claim, so the deposit transaction does not point to any specific claim transaction.
+
+This is graph unlinkability via mixing — the same privacy property delivered by Privacy Cash and Tornado-Nova on Solana. It does **not** hide deposit and withdrawal amounts: Solana exposes balance changes (`preBalances` / `postBalances`) in every transaction's metadata, and no program can suppress them. For variable-amount native SOL on Solana, this leak is a platform-level property, not a DarkDrop design choice. Anonymity scales with the size of the unclaimed-pool set — when many drops sit unclaimed concurrently, an observer cannot directly correlate any single withdrawal back to any single deposit.
 
 ## Architecture
 
 DarkDrop splits the claim into two steps via a **credit note model**:
 
 1. **Deposit** (`create_drop`) -- SOL enters a program-owned treasury via CPI. Leaf inserted into Merkle tree. Claim code generated client-side. Optionally, a `DepositReceipt` PDA is created so the depositor can revoke if the claim code is lost.
-2. **Claim** (`claim_credit`) -- Groth16 proof verified on-chain (V2 circuit, amount is a private input). CreditNote PDA created storing a re-randomized Poseidon commitment (salted to break deposit→claim linkage). Nullifier marked spent. Zero SOL moves. Zero amounts in instruction data.
-3. **Withdraw** (`withdraw_credit`) -- User opens the Poseidon commitment. Program verifies via on-chain recomputation. SOL transferred via direct lamport manipulation on the program-owned treasury. No CPI, no inner instruction. CreditNote PDA closed.
+2. **Claim** (`claim_credit`) -- Groth16 proof verified on-chain (V2 circuit, amount is a private input). CreditNote PDA created storing a re-randomized Poseidon commitment (salted to break deposit→claim linkage). Nullifier marked spent. **At this step: zero SOL movement, zero amount data in the instruction.** The deposit→claim graph link is what's hidden by this step, not the underlying amounts.
+3. **Withdraw** (`withdraw_credit`) -- User opens the Poseidon commitment. Program verifies via on-chain recomputation. SOL transferred via direct lamport manipulation on the program-owned treasury (no Transfer CPI, no inner instruction — but balance deltas remain visible in standard TX metadata, same as every other Solana withdrawal). CreditNote PDA closed.
 
 Three additional paths layer on top of the core flow:
 
-- **Note Pool (V3)** -- second-layer Merkle mixer. Two entry paths: `deposit_to_note_pool` opens an existing credit note and inserts a fresh pool leaf; `create_drop_to_pool` goes straight from SOL → pool leaf in one TX (MAX PRIVACY on the frontend). Both construct the pool leaf on-chain with a program-verified amount, eliminating the dishonest-leaf problem at the pool layer. `claim_from_note_pool` verifies a V3 Groth16 proof and issues a brand-new credit note. An observer must break both ZK layers to deanonymize.
+- **Note Pool (V3)** -- second-layer Merkle mixer. Two entry paths: `deposit_to_note_pool` opens an existing credit note and inserts a fresh pool leaf; `create_drop_to_pool` goes straight from SOL → pool leaf in one TX. Both construct the pool leaf on-chain with a program-verified amount, eliminating the dishonest-leaf problem at the pool layer. `claim_from_note_pool` verifies a V3 Groth16 proof and issues a brand-new credit note. The pool deepens deposit↔claim graph unlinkability via two layers of mixing — it does not hide deposit or withdrawal amounts.
 - **Revoke (30-day time-lock)** -- `revoke_drop` lets the depositor reclaim SOL from an unclaimed drop by submitting the full leaf preimage. The program reconstructs the leaf on-chain, derives the nullifier, and refunds via direct lamport manipulation. Claim and revoke share the nullifier PDA namespace, so a drop can only resolve one way. `close_receipt` recovers receipt rent for drops that were claimed normally. The frontend's `/drop/manage` page surfaces stored receipts per-wallet with revoke / close_receipt actions and a staleness badge warning when a claim-code snapshot is near root-history rotation.
 - **Authority rotation** -- `propose_authority_rotation` / `revoke_authority_rotation` / `accept_authority_rotation` implement a single-proposal sidecar pattern for rotating the vault authority without touching Vault state. Closes Audit 04 L-03.
 
-The treasury PDA is owned by the DarkDrop program (not the system program), enabling direct lamport debit without `system_program::transfer`. The program stores triple verification keys (V1 for backward compatibility, V2 for credit notes, V3 for note pool claims). The IDL uses obfuscated field names (`data`, `inputs`, `opening`, `rate`) -- no field is named "amount", "fee", or "lamports".
+The treasury PDA is owned by the DarkDrop program (not the system program), enabling direct lamport debit without `system_program::transfer` (which avoids the inner-instruction Transfer decode in instruction-data displays). The program stores triple verification keys (V1 for backward compatibility, V2 for credit notes, V3 for note pool claims). The IDL uses generic field names (`data`, `inputs`, `opening`, `rate`) -- no field is named "amount", "fee", or "lamports". Note: explorer balance-delta panels read transaction metadata directly, not the IDL, so deposit and withdrawal amounts remain visible regardless of field naming. The IDL obfuscation only hides the per-field decode, not the SOL movement.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for full technical details, deployed addresses, test results, and proof TX signatures.
 
@@ -89,7 +91,7 @@ npm install
 npx ts-node src/index.ts
 ```
 
-Endpoints: `GET /health`, `POST /api/relay/claim` (legacy V1), `POST /api/relay/create-drop` (private deposit), `POST /api/relay/credit/claim` (V2 claim), `POST /api/relay/credit/withdraw` (V2 withdraw), `POST /api/relay/create-drop-to-pool` (MAX PRIVACY deposit), `POST /api/relay/pool/claim` (gasless V3 claim).
+Endpoints: `GET /health`, `POST /api/relay/claim` (legacy V1), `POST /api/relay/create-drop` (private deposit), `POST /api/relay/credit/claim` (V2 claim), `POST /api/relay/credit/withdraw` (V2 withdraw), `POST /api/relay/create-drop-to-pool` (one-TX pool deposit), `POST /api/relay/pool/claim` (gasless V3 claim).
 
 ## Tests
 
@@ -138,7 +140,7 @@ audits/             4 security audit reports + fix tracker
 
 ## Audits
 
-Four audit reports cover the program, circuits, fee/treasury logic, and the revoke + note-pool layer. See the [audit README](audits/README.md) for the summary table and fix tracker.
+Five internal audit reports cover the program, circuits, fee/treasury logic, the revoke + note-pool layer, and schema v2 + pool deposit. See the [audit README](audits/README.md) for the summary table and fix tracker.
 
 | # | Report | Date | Scope |
 |---|--------|------|-------|
@@ -146,8 +148,9 @@ Four audit reports cover the program, circuits, fee/treasury logic, and the revo
 | 2 | [Code Review](audits/AUDIT-02-CODE-REVIEW.md) | 2026-04-07 | Full instruction-level review |
 | 3 | [Post-Fix Review](audits/AUDIT-03-POST-FIX-REVIEW.md) | 2026-04-08 | Fix verification + `admin_sweep` + re-audit |
 | 4 | [Post-Revoke Review](audits/AUDIT-04-POST-REVOKE.md) | 2026-04-20 | V3 Note Pool + `revoke_drop` + `DepositReceipt` + privacy |
+| 5 | [Schema V2 + Pool Deposit](audits/AUDIT-05-SCHEMA-V2-AND-POOL-DEPOSIT.md) | 2026-04-29 | Schema v2 migration, authority rotation, `create_drop_to_pool` |
 
-No open HIGH or CRITICAL findings as of Audit 04. No third-party firm review yet — deployment restricted to Solana devnet.
+Audit 05 closed all reported findings. No third-party firm review yet — deployment restricted to Solana devnet.
 
 ## License
 

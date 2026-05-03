@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
-import { Connection, Transaction } from "@solana/web3.js";
+import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 
 import {
   initPoseidon,
@@ -21,6 +21,13 @@ import {
 import { getNullifierPDA, getVaultPDA, getMerkleTreePDA } from "@/lib/vault";
 import { buildRevokeDropIx, buildCloseReceiptIx } from "@/lib/revoke";
 import { CURRENT_ROOT_HISTORY_SIZE, readTreeNextIndex } from "@/lib/merkle";
+import {
+  StealthRecord,
+  listStealthForOwner,
+  recoverKeypair,
+  sweepStealth,
+  deleteStealth,
+} from "@/lib/stealth";
 
 type Status = "pending" | "revokable" | "claimed" | "resolved" | "unknown";
 
@@ -111,6 +118,8 @@ export default function ManageDropsPage() {
   const [busyLeaf, setBusyLeaf] = useState<string | null>(null);
   const [notice, setNotice] = useState<string>("");
   const [error, setError] = useState<string>("");
+  const [stealthRows, setStealthRows] = useState<{ record: StealthRecord; balance: number }[]>([]);
+  const [busyStealth, setBusyStealth] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!publicKey) {
@@ -132,12 +141,27 @@ export default function ManageDropsPage() {
         .then((info) => (info ? readTreeNextIndex(info.data) : null))
         .catch(() => null);
 
-      const [enriched, nextIdx] = await Promise.all([
+      // Stealth records owned by this wallet, plus their on-chain balances.
+      const stealthRecords = listStealthForOwner(publicKey);
+      const stealthPromise = Promise.all(
+        stealthRecords.map(async (record) => {
+          try {
+            const balance = await connection.getBalance(new PublicKey(record.pubkey));
+            return { record, balance };
+          } catch {
+            return { record, balance: 0 };
+          }
+        })
+      );
+
+      const [enriched, nextIdx, stealthLoaded] = await Promise.all([
         Promise.all(stored.map((s) => enrichReceipt(connection, s))),
         treePromise,
+        stealthPromise,
       ]);
       setRows(enriched);
       setTreeNextIndex(nextIdx);
+      setStealthRows(stealthLoaded);
     } catch (e: any) {
       setError(e.message || "Failed to load receipts");
     } finally {
@@ -209,6 +233,37 @@ export default function ManageDropsPage() {
     refresh();
   };
 
+  const handleSweep = async (entry: { record: StealthRecord; balance: number }) => {
+    if (!publicKey) return;
+    setBusyStealth(entry.record.pubkey);
+    setError("");
+    setNotice("");
+    try {
+      const keypair = recoverKeypair(entry.record);
+      const { signature, lamports } = await sweepStealth(
+        keypair,
+        publicKey,
+        connection
+      );
+      await connection.confirmTransaction(signature, "confirmed");
+      const sweptSol = (lamports / 1e9).toFixed(5);
+      setNotice(`Swept ${sweptSol} SOL from stealth ${entry.record.pubkey.slice(0, 8)}… — ${signature.slice(0, 8)}…`);
+      // After successful sweep, the stealth account is empty. Drop it
+      // from local storage so the list doesn't grow unbounded.
+      deleteStealth(entry.record.pubkey);
+      await refresh();
+    } catch (e: any) {
+      setError(e.message || "Sweep failed");
+    } finally {
+      setBusyStealth(null);
+    }
+  };
+
+  const handleForgetStealth = (record: StealthRecord) => {
+    deleteStealth(record.pubkey);
+    refresh();
+  };
+
   const now = Math.floor(Date.now() / 1000);
 
   return (
@@ -243,6 +298,80 @@ export default function ManageDropsPage() {
           {error && (
             <div className="mb-4 border-2 border-[rgba(255,0,68,0.3)] bg-[rgba(255,0,68,0.04)] px-5 py-3">
               <p className="text-xs text-[var(--danger)] font-semibold">{error}</p>
+            </div>
+          )}
+
+          {/* Stealth addresses (recipient-side claims) */}
+          {stealthRows.length > 0 && (
+            <div className="mb-6">
+              <p className="mb-3 font-mono text-[9px] tracking-[0.2em] text-[rgba(224,224,224,0.35)]">
+                {stealthRows.length} STEALTH ADDRESS{stealthRows.length === 1 ? "" : "ES"}
+              </p>
+              <div className="space-y-3">
+                {stealthRows.map((entry) => {
+                  const balanceSol = (entry.balance / 1e9).toFixed(5);
+                  const empty = entry.balance < 6000; // below sweep fee floor
+                  return (
+                    <div key={entry.record.pubkey} className="arcade-panel">
+                      <div className="arcade-panel-header justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="arcade-dot" />
+                          <span className="font-mono text-[9px] tracking-[0.18em] text-[rgba(224,224,224,0.5)]">
+                            {entry.record.pubkey.slice(0, 8) + "…" + entry.record.pubkey.slice(-6)}
+                          </span>
+                        </div>
+                        <span className={`font-mono text-[8px] tracking-[0.14em] ${
+                          empty ? "text-[rgba(224,224,224,0.35)]" : "text-[var(--accent)]"
+                        }`}>
+                          {empty ? "EMPTY" : "FUNDED"}
+                        </span>
+                      </div>
+                      <div className="arcade-panel-body space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-[rgba(224,224,224,0.4)]">BALANCE</span>
+                          <span className="font-mono text-[var(--accent)]">{balanceSol} SOL</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-[rgba(224,224,224,0.4)]">CLAIMED</span>
+                          <span className="font-mono text-[rgba(224,224,224,0.7)]">
+                            {new Date(entry.record.createdAt * 1000).toLocaleString()}
+                          </span>
+                        </div>
+                        <p className="break-all font-mono text-[9px] leading-relaxed text-[rgba(224,224,224,0.35)]">
+                          {entry.record.pubkey}
+                        </p>
+                        <div className="flex flex-wrap gap-2 pt-2">
+                          {!empty && (
+                            <button
+                              onClick={() => handleSweep(entry)}
+                              disabled={busyStealth === entry.record.pubkey}
+                              className="arcade-btn-primary px-4 py-2 font-mono text-[9px] tracking-[0.15em]"
+                            >
+                              {busyStealth === entry.record.pubkey ? "..." : "SWEEP TO MAIN WALLET"}
+                            </button>
+                          )}
+                          {empty && (
+                            <button
+                              onClick={() => handleForgetStealth(entry.record)}
+                              className="arcade-btn-ghost px-4 py-2 font-mono text-[9px] tracking-[0.15em]"
+                            >
+                              REMOVE FROM LIST
+                            </button>
+                          )}
+                          <a
+                            href={`https://solscan.io/account/${entry.record.pubkey}?cluster=devnet`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="arcade-btn-ghost px-4 py-2 font-mono text-[9px] tracking-[0.15em]"
+                          >
+                            VIEW ON SOLSCAN
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 

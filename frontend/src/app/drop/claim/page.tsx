@@ -43,6 +43,8 @@ import {
   getCreditNotePDA,
 } from "@/lib/vault";
 import { RELAYER_URL, RELAYER_FEE_BPS, checkRelayerHealth } from "@/lib/relayer";
+import { generateStealthKeypair, saveStealth, type StealthRecord } from "@/lib/stealth";
+import AnonymitySetIndicator from "@/components/AnonymitySetIndicator";
 
 type Stage =
   | "idle"
@@ -67,6 +69,7 @@ export default function ClaimPage() {
   const [claimCode, setClaimCode] = useState("");
   const [password, setPassword] = useState("");
   const [claimMode, setClaimMode] = useState<ClaimMode>("relayer");
+  const [useStealthRecipient, setUseStealthRecipient] = useState(true);
   const [stage, setStage] = useState<Stage>("idle");
   const [error, setError] = useState("");
   const [claimTxSig, setClaimTxSig] = useState("");
@@ -74,12 +77,31 @@ export default function ClaimPage() {
   const [claimedAmount, setClaimedAmount] = useState("");
   const [feeAmount, setFeeAmount] = useState("");
   const [relayerOnline, setRelayerOnline] = useState<boolean | null>(null);
+  const [stealthRecord, setStealthRecord] = useState<StealthRecord | null>(null);
 
   useEffect(() => {
     checkRelayerHealth().then((online) => {
       setRelayerOnline(online);
       setClaimMode(online ? "relayer" : "direct");
     });
+  }, []);
+
+  // If the page was opened via a shareable claim link
+  // (?code=darkdrop:v4:...&for=<recipient>), pre-fill the form so the
+  // recipient does not have to paste anything. The "for" hint is shown to
+  // the user but does not gate the claim — drops are still bearer.
+  const [walletHint, setWalletHint] = useState<string>("");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    if (code && code.startsWith("darkdrop:v4:")) {
+      setClaimCode(code);
+    }
+    const hint = params.get("for");
+    if (hint) {
+      setWalletHint(hint);
+    }
   }, []);
 
   const handleClaim = async () => {
@@ -101,6 +123,21 @@ export default function ClaimPage() {
     }
 
     setError("");
+
+    // Resolve the recipient pubkey for this claim. When stealth mode is on
+    // (default), generate a fresh ed25519 keypair, save its secret to
+    // localStorage immediately (so we don't lose access if the TX lands),
+    // and bind that pubkey as the on-chain recipient. The user's main
+    // wallet remains the payer/signer; only the destination of the SOL
+    // changes. Without stealth, the main wallet is both signer and recipient.
+    const stealthKeypair = useStealthRecipient ? generateStealthKeypair() : null;
+    if (stealthKeypair) {
+      const rec = saveStealth(stealthKeypair, publicKey!, "claim");
+      setStealthRecord(rec);
+    } else {
+      setStealthRecord(null);
+    }
+    const recipientPubkey = stealthKeypair ? stealthKeypair.publicKey : publicKey!;
 
     try {
       // Step 1: Decode claim code
@@ -203,7 +240,7 @@ export default function ClaimPage() {
             amount,
           },
           { pathElements, pathIndices, root: merkleRootBigInt },
-          publicKey!,
+          recipientPubkey,
           poolNullifierHashBig,
           newBlinding,
           newSalt
@@ -219,7 +256,7 @@ export default function ClaimPage() {
         v2ProofResult = await generateClaimProofV2(
           { secret, nullifier, amount, blindingFactor, password: pwdBigint },
           { pathElements, pathIndices, root: merkleRootBigInt },
-          publicKey!,
+          recipientPubkey,
           nullHash,
           amtCommitment,
           pwdHash
@@ -273,7 +310,7 @@ export default function ClaimPage() {
                 proofC: Array.from(proofBytes.proofC),
               },
               poolNullifierHash: Array.from(nullifierHashBytes),
-              recipient: publicKey!.toBase58(),
+              recipient: recipientPubkey.toBase58(),
               inputs: Array.from(opaqueInputs),
             }
           : {
@@ -283,7 +320,7 @@ export default function ClaimPage() {
                 proofC: Array.from(proofBytes.proofC),
               },
               nullifierHash: Array.from(nullifierHashBytes),
-              recipient: publicKey!.toBase58(),
+              recipient: recipientPubkey.toBase58(),
               inputs: Array.from(opaqueInputs),
               salt: Array.from(saltBytes),
             };
@@ -303,7 +340,7 @@ export default function ClaimPage() {
           body: JSON.stringify({
             nullifierHash: Array.from(nullifierHashBytes),
             opening: Array.from(openingBuf),
-            recipient: publicKey!.toBase58(),
+            recipient: recipientPubkey.toBase58(),
           }),
         });
         const withdrawResult = await withdrawResp.json();
@@ -326,7 +363,7 @@ export default function ClaimPage() {
         if (isPool) {
           claimIx = buildClaimFromNotePoolIx({
             payer: publicKey!,
-            recipient: publicKey!,
+            recipient: recipientPubkey,
             poolNullifierHashBytes: nullifierHashBytes,
             proofA: proofBytes.proofA,
             proofB: proofBytes.proofB,
@@ -353,7 +390,7 @@ export default function ClaimPage() {
               { pubkey: merkleTree, isSigner: false, isWritable: false },
               { pubkey: creditNotePDA, isSigner: false, isWritable: true },
               { pubkey: nullifierPDA, isSigner: false, isWritable: true },
-              { pubkey: publicKey!, isSigner: false, isWritable: false },
+              { pubkey: recipientPubkey, isSigner: false, isWritable: false },
               { pubkey: publicKey!, isSigner: true, isWritable: true },
               { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
             ],
@@ -391,8 +428,8 @@ export default function ClaimPage() {
             { pubkey: vault, isSigner: false, isWritable: true },
             { pubkey: treasury, isSigner: false, isWritable: true },
             { pubkey: creditNotePDA, isSigner: false, isWritable: true },
-            { pubkey: publicKey!, isSigner: false, isWritable: true },    // recipient
-            { pubkey: publicKey!, isSigner: true, isWritable: true },     // payer (also fee recipient after I-04)
+            { pubkey: recipientPubkey, isSigner: false, isWritable: true },    // recipient (stealth or main wallet)
+            { pubkey: publicKey!, isSigner: true, isWritable: true },     // payer (always main wallet — fee recipient after I-04)
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
           ],
           data: Buffer.from(withdrawData),
@@ -432,6 +469,18 @@ export default function ClaimPage() {
 
         {(stage === "idle" || stage === "error") ? (
           <div className="space-y-4">
+            <AnonymitySetIndicator />
+            {walletHint && (
+              <div className="border-2 border-[rgba(0,255,65,0.25)] bg-[rgba(0,255,65,0.04)] px-5 py-3">
+                <p className="font-mono text-[10px] tracking-[0.12em] text-[var(--accent-dim)] mb-1">SENT TO</p>
+                <p className="break-all font-mono text-[10px] text-[rgba(224,224,224,0.7)]">{walletHint}</p>
+                {publicKey && publicKey.toBase58() !== walletHint && (
+                  <p className="mt-2 text-[10px] leading-relaxed text-[rgba(255,200,0,0.7)]">
+                    Hint only — the connected wallet is different. Drops are bearer; you can still claim, but the sender expected a different wallet.
+                  </p>
+                )}
+              </div>
+            )}
             {/* Claim code */}
             <div className="arcade-panel">
               <div className="arcade-panel-header">
@@ -541,6 +590,72 @@ export default function ClaimPage() {
               </div>
             </div>
 
+            {/* Recipient mode */}
+            <div className="arcade-panel">
+              <div className="arcade-panel-header">
+                <span className="arcade-dot" />
+                <span className="font-mono text-[9px] tracking-[0.28em] text-[rgba(224,224,224,0.3)]">RECIPIENT</span>
+              </div>
+              <div className="arcade-panel-body space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setUseStealthRecipient(true)}
+                  className={`flex w-full items-start gap-3 border-2 p-4 text-left transition-all !shadow-none ${
+                    useStealthRecipient
+                      ? "border-[var(--accent-dim)] bg-[rgba(0,255,65,0.04)]"
+                      : "border-[var(--border-dim)] hover:border-[var(--border)]"
+                  }`}
+                >
+                  <span className={`mt-0.5 flex h-4 w-4 items-center justify-center border-2 ${
+                    useStealthRecipient
+                      ? "border-[var(--accent)]"
+                      : "border-[rgba(224,224,224,0.2)]"
+                  }`}>
+                    {useStealthRecipient && <span className="block h-2 w-2 bg-[var(--accent)]" />}
+                  </span>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-mono text-[10px] tracking-[0.12em] font-semibold ${
+                        useStealthRecipient ? "text-[var(--accent)]" : "text-[rgba(224,224,224,0.5)]"
+                      }`}>STEALTH</span>
+                      <span className="arcade-badge">RECOMMENDED</span>
+                    </div>
+                    <p className="mt-1 text-[10px] leading-relaxed text-[rgba(224,224,224,0.3)]">
+                      Claim lands at a fresh single-use address. Your main wallet is not named as the on-chain recipient. Sweep to your main wallet anytime from /drop/manage.
+                    </p>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUseStealthRecipient(false)}
+                  className={`flex w-full items-start gap-3 border-2 p-4 text-left transition-all !shadow-none ${
+                    !useStealthRecipient
+                      ? "border-[var(--accent-dim)] bg-[rgba(0,255,65,0.04)]"
+                      : "border-[var(--border-dim)] hover:border-[var(--border)]"
+                  }`}
+                >
+                  <span className={`mt-0.5 flex h-4 w-4 items-center justify-center border-2 ${
+                    !useStealthRecipient
+                      ? "border-[var(--accent)]"
+                      : "border-[rgba(224,224,224,0.2)]"
+                  }`}>
+                    {!useStealthRecipient && <span className="block h-2 w-2 bg-[var(--accent)]" />}
+                  </span>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-mono text-[10px] tracking-[0.12em] font-semibold ${
+                        !useStealthRecipient ? "text-[var(--accent)]" : "text-[rgba(224,224,224,0.5)]"
+                      }`}>MAIN WALLET</span>
+                      <span className="arcade-badge">DIRECT</span>
+                    </div>
+                    <p className="mt-1 text-[10px] leading-relaxed text-[rgba(224,224,224,0.3)]">
+                      Claim lands directly at your connected wallet. Faster (no sweep step) but the on-chain claim TX names your main wallet as recipient.
+                    </p>
+                  </div>
+                </button>
+              </div>
+            </div>
+
             {!publicKey && (
               <div className="arcade-panel">
                 <div className="arcade-panel-body text-center text-[10px] text-[rgba(224,224,224,0.3)]">
@@ -605,6 +720,23 @@ export default function ClaimPage() {
               </div>
             </div>
 
+            {stealthRecord && (
+              <div className="arcade-panel">
+                <div className="arcade-panel-header">
+                  <span className="arcade-dot" />
+                  <span className="font-mono text-[9px] tracking-[0.28em] text-[rgba(224,224,224,0.3)]">STEALTH ADDRESS</span>
+                </div>
+                <div className="arcade-panel-body">
+                  <p className="font-mono text-[10px] break-all text-[rgba(224,224,224,0.5)]">
+                    {stealthRecord.pubkey}
+                  </p>
+                  <p className="mt-2 text-[10px] leading-relaxed text-[rgba(224,224,224,0.4)]">
+                    The SOL landed here, not at your main wallet. The secret key is saved locally in this browser. Sweep to your main wallet from <a href="/drop/manage" className="text-[var(--accent-dim)] hover:text-[var(--accent)] underline">/drop/manage</a>.
+                  </p>
+                </div>
+              </div>
+            )}
+
             <button
               onClick={() => {
                 setStage("idle");
@@ -613,6 +745,7 @@ export default function ClaimPage() {
                 setClaimTxSig("");
                 setWithdrawTxSig("");
                 setFeeAmount("");
+                setStealthRecord(null);
               }}
               className="arcade-btn-ghost w-full py-3 font-mono text-[10px] tracking-[0.15em]"
             >

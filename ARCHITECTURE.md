@@ -39,7 +39,7 @@ This document is the source of truth for the current deployed state. It supersed
 
 ## CREDIT NOTE ARCHITECTURE (V2)
 
-This is DarkDrop's core privacy innovation, deployed April 6, 2026. The claim is split into two steps: `claim_credit` (amount hidden) and `withdraw_credit` (amount revealed but decorrelated from deposit).
+This is DarkDrop's core privacy innovation, deployed April 6, 2026. The claim is split into two steps: `claim_credit` (zero SOL movement, no amount in instruction data) and `withdraw_credit` (amount opened on-chain). The deposit→claim graph link is hidden by the ZK proof; the deposit and withdrawal amounts themselves remain visible in standard transaction metadata (`preBalances`/`postBalances`) — a Solana platform property that no program can suppress. Honest scope: graph unlinkability via mixing, not amount privacy at boundaries.
 
 ### How it works
 
@@ -67,16 +67,16 @@ WITHDRAW (withdraw_credit):
 
 ### Why this matters
 
-The claim TX is the on-chain event that connects a deposit to a withdrawal. In the credit note model, this TX contains **zero amount information** and **zero SOL movement**. An observer who finds the claim TX on-chain sees:
+The claim TX is the on-chain event that *would otherwise* connect a deposit to a withdrawal. In the credit note model, this TX itself contains **zero amount information** and **zero SOL movement**. An observer looking at the claim TX in isolation sees:
 
 - A Groth16 proof (opaque 256 bytes)
 - An `inputs` blob (opaque 96 bytes — no field labeled "amount")
 - A `nullifier_hash` (meaningless without the original secret)
 - Two PDA creations (CreditNote + Nullifier — standard Anchor `init`)
 
-They cannot determine how much SOL was deposited, how much will be withdrawn, or which deposit this claim corresponds to.
+From the claim TX alone, they cannot determine which deposit this claim corresponds to. **However**, deposit amounts are visible on the deposit TXs themselves (`preBalances`/`postBalances`) and withdrawal amounts are visible on the withdraw TXs. With matching amounts and timing, an observer can statistically correlate a deposit-withdrawal pair across the full pool. This is the same boundary leak Privacy Cash and every other Solana mixer carries — Solana platform-level, not a DarkDrop choice. Anonymity scales with the size of the unclaimed-pool set.
 
-The withdrawal is a separate TX from a potentially different wallet at a potentially different time. It shows balance deltas in the account list but no decoded `Transfer` instruction because direct lamport manipulation does not invoke `system_program::transfer`.
+The withdrawal is a separate TX from a potentially different wallet at a potentially different time. It uses direct lamport manipulation (no `system_program::transfer` CPI), which suppresses the inner-instruction "Transfer" decode but does NOT suppress the balance delta in TX metadata. Explorers read the delta directly from `pre/postBalances`.
 
 ### What's visible vs hidden
 

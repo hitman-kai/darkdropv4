@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "DarkDrop - Docs",
-  description: "Documentation for DarkDrop — unlinkable SOL transfers on Solana using zero-knowledge proofs.",
+  description: "Documentation for DarkDrop — sender↔recipient unlinkability for SOL on Solana using zero-knowledge proofs.",
 };
 
 function Section({ id, label, title, children }: { id: string; label: string; title: string; children: React.ReactNode }) {
@@ -92,11 +92,16 @@ export default function DocsPage() {
         {/* What is DarkDrop */}
         <Section id="what" label="0X01" title="What is DarkDrop">
           <P>
-            DarkDrop is a privacy protocol on Solana that lets you send SOL to anyone without creating an on-chain link
-            between the sender and receiver wallets. It uses zero-knowledge proofs (Groth16 on BN254) to verify that a
-            claim is legitimate without revealing which deposit it corresponds to. The sender deposits SOL and receives a
-            claim code. The recipient uses the claim code to generate a ZK proof in their browser and withdraw the funds
-            to any wallet &mdash; with no connection to the original deposit visible on-chain.
+            DarkDrop lets you send SOL to anyone via a bearer claim code, with the deposit→claim graph link hidden by a
+            zero-knowledge proof (Groth16 on BN254). The sender deposits SOL and receives a claim code; the recipient
+            uses the claim code to generate a ZK proof in their browser and withdraw the funds to any wallet. The proof
+            does not reveal which deposit the claim corresponds to.
+          </P>
+          <P>
+            <Accent>Honest scope:</Accent> deposit and withdrawal amounts are visible in standard Solana transaction
+            metadata (<Accent>preBalances</Accent>/<Accent>postBalances</Accent>) and no program can suppress that.
+            What DarkDrop hides is the on-chain link between deposit and claim, the same property delivered by Privacy
+            Cash and Tornado-Nova on Solana. Anonymity scales with the size of the unclaimed-pool set.
           </P>
         </Section>
 
@@ -142,8 +147,10 @@ export default function DocsPage() {
           </P>
           <P>
             The IDL uses deliberately uninformative field names &mdash; no field is named &ldquo;amount&rdquo;,
-            &ldquo;lamports&rdquo;, &ldquo;fee&rdquo;, or &ldquo;balance&rdquo;. Block explorers cannot auto-label
-            the values.
+            &ldquo;lamports&rdquo;, &ldquo;fee&rdquo;, or &ldquo;balance&rdquo;. This blocks per-field auto-labeling
+            in the instruction-data view. It does <Accent>not</Accent> hide the SOL movement: explorers compute the
+            &ldquo;balance change&rdquo; panel directly from transaction metadata, not from the IDL, so deposit and
+            withdrawal amounts remain visible regardless of field naming.
           </P>
         </Section>
 
@@ -232,9 +239,16 @@ export default function DocsPage() {
               claimed from the DarkDrop vault.
             </P>
             <P>
-              <Accent>What&apos;s hidden:</Accent> The link between sender and receiver. The claim amount.
-              Which deposit corresponds to which claim. The withdrawal uses no Transfer instruction, so explorers
-              cannot auto-label it.
+              <Accent>What&apos;s hidden:</Accent> The deposit→claim graph link (which deposit corresponds to which
+              claim). The amount during the claim TX itself. The instruction-level decode of the withdrawal
+              (no &ldquo;Transfer X SOL&rdquo; label, since direct lamport manipulation skips
+              <Accent> system_program::transfer</Accent>).
+            </P>
+            <P>
+              <Accent>What&apos;s NOT hidden:</Accent> The deposit amount and the withdrawal amount in transaction
+              metadata. Sophisticated observers can statistically correlate a deposit and a later withdrawal across
+              the full pool when amounts and timing match. Anonymity scales with the size of the set; small pools
+              are weaker. Same property as Privacy Cash and every other Solana mixer with native SOL.
             </P>
             <P>
               <Accent>Anonymity set:</Accent> Privacy improves with more deposits in the vault. On devnet,
