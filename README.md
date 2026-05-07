@@ -135,6 +135,7 @@ audits/             4 security audit reports + fix tracker
 - Root history 256 slots (schema v2) — claim-code snapshots remain verifiable for ~1–2 weeks of devnet activity
 - `create_drop_to_pool` takes the dishonest-leaf problem off the table for pool-bound deposits: the pool leaf is constructed on-chain from the literal CPI amount
 - Test matrix: 6/6 legacy, 7/7 credit note, 4/4 note pool, 11/11 revoke + close_receipt, plus pool-direct-deposit E2E — all passing
+- Trusted setup: phase-2 community MPC ceremony framework bootstrapped — see [CEREMONY.md](CEREMONY.md). Production zkeys remain the pre-ceremony build until a separate promotion PR.
 
 ## Audits
 

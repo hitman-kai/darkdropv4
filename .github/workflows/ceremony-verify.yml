@@ -1,0 +1,61 @@
+name: Ceremony Verify
+
+on:
+  pull_request:
+    paths:
+      - 'ceremony/**'
+      - 'scripts/ceremony.sh'
+      - '.github/workflows/ceremony-verify.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ceremony/**'
+      - 'scripts/ceremony.sh'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install snarkjs
+        run: npm install -g snarkjs
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Install circom
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          source "$HOME/.cargo/env"
+          cargo install --git https://github.com/iden3/circom.git --locked
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Validate state.json schema
+        run: |
+          jq -e '.phase and (.contributions|type=="array") and (.circuits|type=="array")' ceremony/state.json
+          jq -e '.circuits == ["darkdrop_v2", "note_pool"]' ceremony/state.json
+
+      - name: Verify ceremony if any contributions exist
+        run: |
+          count=$(jq -r '.currentContributionIndex' ceremony/state.json)
+          if [ "$count" -eq 0 ]; then
+            echo "No contributions yet — schema check only."
+            exit 0
+          fi
+          ./scripts/ceremony.sh verify
+
+      - name: Reject promotion of ceremony zkeys to production paths
+        run: |
+          # The ceremony PR must NEVER mutate production paths. Promotion is a separate PR.
+          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '^(circuits/build/|frontend/public/circuits/|program/programs/darkdrop/src/vk_new\.rs)'; then
+            echo "::error::This PR touches production zkey/VK paths. Production promotion belongs in a separate PR."
+            exit 1
+          fi
+        if: github.event_name == 'pull_request'
