@@ -1,0 +1,11 @@
+{
+    "phase": "uninitialised",
+    "startedAt": null,
+    "contributions": [],
+    "circuits": ["darkdrop_v2", "note_pool"],
+    "ptauFile": "powersOfTau28_hez_final_14.ptau",
+    "currentContributionIndex": 0,
+    "beaconSource": "drand.cloudflare.com",
+    "beacon": null,
+    "finalizedAt": null
+}

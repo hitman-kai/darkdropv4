@@ -1,0 +1,12 @@
+# Powers of Tau is large (~45MB) — fetched on demand by ceremony.sh
+*.ptau
+
+# Don't commit working temp files
+state.tmp
+*.swp
+.DS_Store
+
+# Intermediate per-contribution zkeys are large; only the final.zkey set is kept.
+# Contributors push their numbered zkey alongside their PR; CI verifies, then a
+# squash/merge keeps only what's necessary. Override with !zkeys/*_final.zkey if
+# you change the policy.
