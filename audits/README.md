@@ -1,6 +1,6 @@
 # DarkDrop V4 — Security Audits
 
-**Program ID:** `GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU`  
+**Program ID:** `GSig1QYVwPVhHF6oVEwhadAwdWjTqtq6H5cSMEkfAgkU`
 **Cluster:** Devnet
 
 This directory contains all security audit reports for the DarkDrop V4 Solana program.
@@ -16,6 +16,7 @@ This directory contains all security audit reports for the DarkDrop V4 Solana pr
 | 3 | [Post-Fix Review](AUDIT-03-POST-FIX-REVIEW.md) | April 8, 2026 | Fix verification (H-01, M-01, L-03) + `admin_sweep` + full re-audit | 1 HIGH, 3 MEDIUM, 3 LOW, 4 INFO (HIGH + 3 MEDIUMs all fixed in-audit) |
 | 4 | [Post-Revoke Review](AUDIT-04-POST-REVOKE.md) | April 20, 2026 | V3 Note Pool layer + `revoke_drop` + `DepositReceipt` + counter invariants + privacy analysis | 0 CRITICAL, 0 HIGH, 1 MEDIUM (fixed in-cycle), 4 LOW, 4 INFO |
 | 5 | [Schema v2 + Pool Deposit](AUDIT-05-SCHEMA-V2-AND-POOL-DEPOSIT.md) | April 24, 2026 | `create_drop_to_pool` + `migrate_schema_v2` + `authority_rotation` + I-04/L-03-NEW fix verification + cross-layer invariants | 0 CRITICAL, 0 HIGH, 0 MEDIUM, 3 LOW (1 fixed in-cycle), 4 INFO |
+| 6 | [Deep Scan, Post-SPL](AUDIT-06-DEEP-SCAN.md) | May 25, 2026 | Fresh full-repo walk; SPL/multi-mint extension + V3 relayer surface + gasless trust boundary; no inherited findings | 0 CRITICAL, 0 HIGH, 4 MEDIUM, 4 LOW, 3 INFO |
 
 ---
 
@@ -47,6 +48,17 @@ This directory contains all security audit reports for the DarkDrop V4 Solana pr
 | `create_drop_to_pool` has no revoke option | #5 L-03 | LOW | **FIXED (doc-only, accepted design)** | Amber "NO REVOKE PATH" warning added to `/drop/create` when MAX PRIVACY is selected. New "Revoke trade-off for pool deposits" subsection in `ARCHITECTURE.md` §13 spells out the permanence and the reason a `PoolDepositReceipt` was rejected. |
 | `deposit_to_note_pool` doc misdescribes leaf hashing | #5 I-01 | INFO | **FIXED** | Doc updated: `pool_leaf = Poseidon4(pool_secret, pool_nullifier, verified_amount, pool_blinding)` with an explicit note that any change breaks V3 proof verification. |
 | `migrate_schema_v2` byte-order invariant uncommented | #5 I-02 | INFO | **FIXED** | Long invariant comment added above the root-history seeding loop explaining why it must run before the `filled_subtrees` copy and must cover the full `V1..N` range (regression trap for future refactors). |
+| Relayer has no V3 verification key or verifier function | #6 M-01 | MEDIUM | **Open** | `relayer/src/verify.ts` loads only V1/V2 VKs; pool-claim endpoint cannot pre-verify until V3 wiring is added |
+| `claim_credit` salt parameter is not bound to the V2 proof | #6 M-02 | MEDIUM | **Open** | Gasless relayer can substitute salt; withdraw fails unless client reads `credit.salt` on-chain. Fix: read salt from `credit.salt` at withdraw, drop from caller `opening` |
+| `initialize_vault` is permissionless — first-caller wins authority | #6 M-03 | MEDIUM | **Open** | Deploy + initialize must be atomic. Document in `CONTRIBUTING.md` and harden `scripts/initialize.js` |
+| SPL extension bound to legacy SPL Token; Token-2022 mints fail with cryptic error | #6 M-04 | MEDIUM | **Open** | Decide whether Token-2022 is in scope. If not, document and improve error. If yes, separate design + audit cycle |
+| `create_drop` accepts `_amount_commitment` and `_password_hash` that are never used | #6 L-01 | LOW | **Open** | Dead instruction parameters; drop from signature and IDL |
+| `is_known_root` is O(256) linear scan on every claim | #6 L-02 | LOW | **Open** | Performance hazard if ROOT_HISTORY_SIZE grows; switch to backward-walk-from-`root_history_index` |
+| `pubkey_to_field` and `u64_to_field_be` duplicated across 5+ instruction files | #6 L-03 | LOW | **Open** | Drift risk on safety-critical Poseidon + amount encoding; refactor into `poseidon.rs` / `util.rs` |
+| Hardcoded 400k CU budget in `pool-claim.ts` and `credit.ts` | #6 L-04 | LOW | **Open** | Move to `relayer/src/config.ts` via env var |
+| No Poseidon domain separation across recipient/commitment/nullifier contexts | #6 I-01 | INFO | **Advisory** | Practical risk negligible; consider domain tags on next ceremony rotation |
+| `migrate_vault.rs` reads authority via hardcoded byte offset with panicking `unwrap()` | #6 I-02 | INFO | **Advisory** | One-shot migration; effectively dead code. Replace `unwrap()` with fallible conversion or mark `#[deprecated]` |
+| `processed-txs.ts` dedups on TX signature, not nullifier | #6 I-03 | INFO | **Advisory** | Naming overstates protection; add comment block clarifying it dedupes deposit retries only |
 
 ---
 
