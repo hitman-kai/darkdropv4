@@ -43,4 +43,14 @@ export const config = {
 
   // Max claim amount the relayer will process (in lamports)
   maxClaimAmount: BigInt(process.env.MAX_CLAIM || "100000000000"), // 100 SOL
+
+  // Compute-unit budgets per relay endpoint. Each route runs a Groth16
+  // verification on-chain. V1 verifies a 6-public-input proof and costs less
+  // than V2/V3. Defaults match the previously hardcoded inline values.
+  // Bump these via env if a runtime repricing or verifier upgrade pushes
+  // cost over budget.
+  v1ClaimCu: parseInt(process.env.V1_CLAIM_CU || "200000", 10),
+  v2CreditClaimCu: parseInt(process.env.V2_CREDIT_CLAIM_CU || "400000", 10),
+  v2CreditSplClaimCu: parseInt(process.env.V2_CREDIT_SPL_CLAIM_CU || "400000", 10),
+  v3PoolClaimCu: parseInt(process.env.V3_POOL_CLAIM_CU || "400000", 10),
 };

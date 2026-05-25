@@ -147,7 +147,7 @@ router.post("/claim", async (req: Request, res: Response) => {
     });
 
     const tx = new Transaction().add(
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+      ComputeBudgetProgram.setComputeUnitLimit({ units: config.v2CreditClaimCu }),
       ix,
     );
     tx.feePayer = relayer.publicKey;

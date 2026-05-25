@@ -175,7 +175,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     // Build and send TX — relayer is the sole signer
     const tx = new Transaction().add(
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }),
+      ComputeBudgetProgram.setComputeUnitLimit({ units: config.v1ClaimCu }),
       ix,
     );
     tx.feePayer = relayer.publicKey;
