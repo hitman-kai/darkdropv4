@@ -5,12 +5,27 @@ on:
     paths:
       - 'ceremony/**'
       - 'scripts/ceremony.sh'
+      - 'scripts/verify-drand.js'
+      - 'scripts/package.json'
       - '.github/workflows/ceremony-verify.yml'
   push:
     branches: [main]
     paths:
       - 'ceremony/**'
       - 'scripts/ceremony.sh'
+      - 'scripts/verify-drand.js'
+      - 'scripts/package.json'
+
+# Pinned tool versions. Drift between contributor-machine and CI is silent and
+# breaks reproducibility — bump in lockstep with ceremony/CONTRIBUTING.md.
+env:
+  CIRCOM_VERSION: 'v2.2.2'
+  SNARKJS_VERSION: '0.7.6'
+  # drand "League of Entropy" mainnet (chained, 30s period). Must match
+  # the constants in scripts/ceremony.sh and the fields in state.json.
+  DRAND_CHAIN_HASH: '8990e7a9aaed2ffed73dbd7092123d6f289930540d7651336225dc172e51b2ce'
+  DRAND_PUBLIC_KEY: '868f005eb8e6e4ca0a47c8a77ceaa5309a47978a7c71bc5cce96366b5d7a569937c529eeda66c7293784a9402801af31'
+  PTAU_URL: 'https://hermez.s3-eu-west-1.amazonaws.com/powersOfTau28_hez_final_14.ptau'
 
 jobs:
   verify:
@@ -18,38 +33,161 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install snarkjs
-        run: npm install -g snarkjs
+      - name: Install pinned snarkjs
+        run: npm install -g "snarkjs@${{ env.SNARKJS_VERSION }}"
 
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Install circom
+      - name: Install pinned circom
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source "$HOME/.cargo/env"
-          cargo install --git https://github.com/iden3/circom.git --locked
+          cargo install --git https://github.com/iden3/circom.git --tag "${{ env.CIRCOM_VERSION }}" --locked
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Validate state.json schema
         run: |
-          jq -e '.phase and (.contributions|type=="array") and (.circuits|type=="array")' ceremony/state.json
+          # Tightened schema: every field the ceremony's audit trail depends on
+          # must be present and well-typed. A contributor quietly removing
+          # ptauSha256 or beaconChainHash would otherwise pass the old loose check.
+          jq -e '
+            .phase
+            and (.contributions | type == "array")
+            and (.circuits | type == "array")
+            and (.ptauFile | type == "string")
+            and (.ptauSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+            and (.currentContributionIndex | type == "number")
+            and (.beaconChainHash | type == "string" and test("^[0-9a-f]{64}$"))
+            and (.beaconPublicKey | type == "string" and test("^[0-9a-f]{96}$"))
+            and (has("beaconRound") and has("beaconAnnouncedAt") and has("beaconExpectedAt"))
+            and (has("beacon") and has("finalizedAt"))
+          ' ceremony/state.json
           jq -e '.circuits == ["darkdrop_v2", "note_pool"]' ceremony/state.json
+          # Pin the expected chain hash. If a contributor changes the drand chain
+          # they're also changing the trust root — that needs a separate, deliberate PR.
+          jq -e --arg ch "${{ env.DRAND_CHAIN_HASH }}" '.beaconChainHash == $ch' ceremony/state.json
+          jq -e --arg pk "${{ env.DRAND_PUBLIC_KEY }}" '.beaconPublicKey == $pk' ceremony/state.json
 
-      - name: Verify ceremony if any contributions exist
+      - name: Detect if this PR adds a contribution
+        id: detect
+        if: github.event_name == 'pull_request'
         run: |
+          changed=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
+          echo "Changed files:"
+          echo "$changed"
+          if echo "$changed" | grep -qE '^ceremony/contributions/contribution_[0-9]+_.+\.json$'; then
+            echo "is_contribution=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_contribution=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: GitHub account-age gate (contribution PRs only)
+        if: steps.detect.outputs.is_contribution == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          # Mitigates drive-by sock-puppet contributions in the permissionless model.
+          # Easy to defeat at scale (anyone can wait 90 days), but raises the cost
+          # of opportunistic same-day fake accounts. This is a soft signal, not a
+          # cryptographic gate — the load-bearing security is one-honest-contributor
+          # plus the pre-committed drand beacon.
+          created_at=$(gh api "users/$AUTHOR" --jq .created_at)
+          if [ -z "$created_at" ] || [ "$created_at" = "null" ]; then
+            echo "::error::Could not resolve account creation date for $AUTHOR"
+            exit 1
+          fi
+          created_unix=$(date -d "$created_at" +%s)
+          now=$(date +%s)
+          age_days=$(( (now - created_unix) / 86400 ))
+          echo "Author: $AUTHOR — account created $created_at — age ${age_days} days"
+          if [ "$age_days" -lt 90 ]; then
+            echo "::error::Contribution PR author $AUTHOR account is ${age_days} days old (≥90 required). See ceremony/CONTRIBUTING.md for the rationale."
+            exit 1
+          fi
+
+      - name: Verify ceremony — direct snarkjs (bypasses scripts/ceremony.sh)
+        run: |
+          # Defense-in-depth: a contribution PR could mutate scripts/ceremony.sh
+          # in the same diff and fake the verify result. This step does not invoke
+          # the script — it reads paths from state.json (whose schema is validated
+          # above), downloads the pinned ptau, hash-checks it, and calls
+          # `snarkjs zkey verify` directly for every circuit at the current index.
+          set -euo pipefail
+
           count=$(jq -r '.currentContributionIndex' ceremony/state.json)
           if [ "$count" -eq 0 ]; then
             echo "No contributions yet — schema check only."
             exit 0
           fi
-          ./scripts/ceremony.sh verify
+
+          # Fetch and hash-check ptau (gitignored; not in the repo).
+          PTAU_FILE=$(jq -r '.ptauFile' ceremony/state.json)
+          EXPECTED_SHA=$(jq -r '.ptauSha256' ceremony/state.json)
+          PTAU_PATH="ceremony/$PTAU_FILE"
+          if [ ! -f "$PTAU_PATH" ]; then
+            echo "Downloading $PTAU_FILE ..."
+            curl -L --fail -o "$PTAU_PATH" "${{ env.PTAU_URL }}"
+          fi
+          actual_sha=$(sha256sum "$PTAU_PATH" | awk '{print $1}')
+          if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
+            echo "::error::ptau hash mismatch: $actual_sha != $EXPECTED_SHA"
+            exit 1
+          fi
+          echo "✓ ptau verified: $EXPECTED_SHA"
+
+          # Hardcoded circuit → r1cs mapping. Kept in the workflow file (not read
+          # from ceremony.sh) so a contribution PR cannot redirect us to a fake
+          # r1cs by mutating the script. If circuits are added/renamed, this must
+          # be updated in the same PR as the schema's `.circuits` list.
+          declare -A R1CS_OF
+          R1CS_OF[darkdrop_v2]="circuits/build/darkdrop.r1cs"
+          R1CS_OF[note_pool]="circuits/build/note_pool/note_pool.r1cs"
+
+          # circuits/*.circom includes ./node_modules/circomlib/circuits/... so
+          # we need circomlib installed before compile.
+          (cd circuits && npm install --no-audit --no-fund --silent)
+
+          # Compile r1cs from circom source so we verify against what's in this
+          # commit, not a stale build artifact.
+          (cd circuits && circom darkdrop.circom --r1cs --wasm --sym -o build/) || { echo "::error::circom compile failed for darkdrop"; exit 1; }
+          mkdir -p circuits/build/note_pool
+          (cd circuits && circom note_pool.circom --r1cs --wasm --sym -o build/note_pool/) || { echo "::error::circom compile failed for note_pool"; exit 1; }
+
+          ok=1
+          for id in $(jq -r '.circuits[]' ceremony/state.json); do
+            r1cs="${R1CS_OF[$id]:-}"
+            if [ -z "$r1cs" ]; then
+              echo "::error::Unknown circuit id in state.json: $id (no r1cs mapping in workflow)"
+              ok=0
+              continue
+            fi
+            zkey=$(printf "ceremony/zkeys/%s_%04d.zkey" "$id" "$count")
+            if [ ! -f "$zkey" ]; then
+              echo "::error::Expected zkey not present in PR: $zkey"
+              ok=0
+              continue
+            fi
+            echo "Verifying $id at index $count: $zkey"
+            if snarkjs zkey verify "$r1cs" "$PTAU_PATH" "$zkey"; then
+              echo "  ✓ $id verified"
+            else
+              echo "::error::$id verification failed"
+              ok=0
+            fi
+          done
+
+          if [ "$ok" -ne 1 ]; then exit 1; fi
+          echo "All contributions verified (direct path, ceremony.sh bypassed)."
 
       - name: Reject promotion of ceremony zkeys to production paths
         run: |

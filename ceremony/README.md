@@ -15,11 +15,11 @@ Groth16 zk-SNARKs require a one-time setup that produces secret randomness ("tox
 |---|---|---|
 | **Phase 1 (universal)** | Powers of Tau, supports any circuit up to 2^14 constraints | Hermez Network ceremony, 54 contributors. File: `powersOfTau28_hez_final_14.ptau` (~45MB, fetched from `hermez.s3-eu-west-1.amazonaws.com`, gitignored). |
 | **Phase 2 (circuit-specific)** | Per-circuit randomness for V2 + V3 | This ceremony — DarkDrop community contributions. |
-| **Final beacon** | Public, unpredictable randomness applied at finalisation | `drand.cloudflare.com` — public verifiable random function. |
+| **Final beacon** | Public, unpredictable randomness applied at finalisation | drand mainnet ("League of Entropy"), BLS-verified client-side. The exact round number is committed in [`state.json`](state.json) and [`CEREMONY.md`](CEREMONY.md) **≥7 days before finalisation** so no maintainer can shop for a favorable randomness value. |
 
 ## Status
 
-See [`state.json`](state.json) for the live state machine: current contribution index, finalisation status, beacon value once applied.
+See [`state.json`](state.json) for the machine-readable state and [`CEREMONY.md`](CEREMONY.md) for the human-readable timeline, the pre-committed drand beacon round, and the public phase announcements.
 
 ## How to contribute
 
