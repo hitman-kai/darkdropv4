@@ -270,7 +270,7 @@ async function main() {
   const validClaimIx = new TransactionInstruction({
     programId: PROGRAM_ID,
     keys: [
-      { pubkey: vault, isSigner: false, isWritable: false },
+      { pubkey: vault, isSigner: false, isWritable: true },
       { pubkey: notePool, isSigner: false, isWritable: true },
       { pubkey: notePoolTree, isSigner: false, isWritable: false },
       { pubkey: freshCreditPDA, isSigner: false, isWritable: true },
@@ -295,7 +295,7 @@ async function main() {
     const replayIx = new TransactionInstruction({
       programId: PROGRAM_ID,
       keys: [
-        { pubkey: vault, isSigner: false, isWritable: false },
+        { pubkey: vault, isSigner: false, isWritable: true },
         { pubkey: notePool, isSigner: false, isWritable: true },
         { pubkey: notePoolTree, isSigner: false, isWritable: false },
         { pubkey: dupCreditPDA, isSigner: false, isWritable: true },
@@ -340,7 +340,7 @@ async function main() {
     const fakeRootIx = new TransactionInstruction({
       programId: PROGRAM_ID,
       keys: [
-        { pubkey: vault, isSigner: false, isWritable: false },
+        { pubkey: vault, isSigner: false, isWritable: true },
         { pubkey: notePool, isSigner: false, isWritable: true },
         { pubkey: notePoolTree, isSigner: false, isWritable: false },
         { pubkey: cp2, isSigner: false, isWritable: true },
@@ -457,7 +457,7 @@ async function main() {
     const garbageIx = new TransactionInstruction({
       programId: PROGRAM_ID,
       keys: [
-        { pubkey: vault, isSigner: false, isWritable: false },
+        { pubkey: vault, isSigner: false, isWritable: true },
         { pubkey: notePool, isSigner: false, isWritable: true },
         { pubkey: notePoolTree, isSigner: false, isWritable: false },
         { pubkey: fakeCreditPDA, isSigner: false, isWritable: true },

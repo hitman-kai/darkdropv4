@@ -390,7 +390,7 @@ async function main() {
   const claimFromPoolIx = new TransactionInstruction({
     programId: PROGRAM_ID,
     keys: [
-      { pubkey: vault, isSigner: false, isWritable: false },
+      { pubkey: vault, isSigner: false, isWritable: true },
       { pubkey: notePool, isSigner: false, isWritable: true },
       { pubkey: notePoolTree, isSigner: false, isWritable: false },
       { pubkey: freshCreditNotePDA, isSigner: false, isWritable: true },

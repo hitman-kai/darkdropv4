@@ -77,7 +77,19 @@ pub fn handle_claim_from_note_pool(
     // Store pool nullifier (double-claim prevention)
     ctx.accounts.pool_nullifier_account.nullifier_hash = pool_nullifier_hash;
 
-    // Update note pool stats
+    // Telemetry counters (issue #47 — Audit #7 I-02).
+    // Convention: `vault.total_claims` is the GLOBAL claim counter bumped by
+    // every claim path (claim_credit, claim_credit_spl, claim_from_note_pool,
+    // claim_from_note_pool_spl), so it is a complete cross-layer/cross-asset
+    // count. `note_pool.total_claims` is an ADDITIONAL per-layer counter that
+    // exists only for the SOL note pool (there is no NotePoolSpl singleton).
+    // Neither field is read by any value-moving, solvency, sweep, or
+    // proof-verification logic — analytics only.
+    let vault = &mut ctx.accounts.vault;
+    vault.total_claims = vault.total_claims
+        .checked_add(1)
+        .ok_or(DarkDropError::Overflow)?;
+
     let note_pool = &mut ctx.accounts.note_pool;
     note_pool.total_claims = note_pool.total_claims
         .checked_add(1)
@@ -97,7 +109,7 @@ pub fn handle_claim_from_note_pool(
 #[derive(Accounts)]
 #[instruction(pool_nullifier_hash: [u8; 32])]
 pub struct ClaimFromNotePool<'info> {
-    #[account(seeds = [b"vault"], bump = vault.bump)]
+    #[account(mut, seeds = [b"vault"], bump = vault.bump)]
     pub vault: Account<'info, Vault>,
 
     #[account(
