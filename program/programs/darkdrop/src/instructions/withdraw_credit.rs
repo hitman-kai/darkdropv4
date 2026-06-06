@@ -110,15 +110,31 @@ pub fn handle_withdraw_credit(
     // Only account balance deltas visible in transaction metadata.
 
     // Debit treasury (program-owned — we can decrease its lamports)
-    **ctx.accounts.treasury.to_account_info().try_borrow_mut_lamports()? -= amount;
+    {
+        let treasury_info = ctx.accounts.treasury.to_account_info();
+        let mut treasury_lamports = treasury_info.try_borrow_mut_lamports()?;
+        **treasury_lamports = (**treasury_lamports)
+            .checked_sub(amount)
+            .ok_or(DarkDropError::Overflow)?;
+    }
 
     // Credit recipient
-    **ctx.accounts.recipient.to_account_info().try_borrow_mut_lamports()? += recipient_amount;
+    {
+        let recipient_info = ctx.accounts.recipient.to_account_info();
+        let mut recipient_lamports = recipient_info.try_borrow_mut_lamports()?;
+        **recipient_lamports = (**recipient_lamports)
+            .checked_add(recipient_amount)
+            .ok_or(DarkDropError::Overflow)?;
+    }
 
     // Credit the fee to payer (I-04: fee_recipient was constrained to equal
     // payer since Audit 03, making it a redundant account slot).
     if fee > 0 {
-        **ctx.accounts.payer.to_account_info().try_borrow_mut_lamports()? += fee;
+        let payer_info = ctx.accounts.payer.to_account_info();
+        let mut payer_lamports = payer_info.try_borrow_mut_lamports()?;
+        **payer_lamports = (**payer_lamports)
+            .checked_add(fee)
+            .ok_or(DarkDropError::Overflow)?;
     }
 
     // Track total withdrawn for sweep limit enforcement

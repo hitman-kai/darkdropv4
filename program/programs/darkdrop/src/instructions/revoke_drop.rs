@@ -94,8 +94,20 @@ pub fn handle_revoke_drop(
 
     // === DIRECT LAMPORT MANIPULATION ===
     // Zero CPI, zero inner instructions. Only balance deltas visible.
-    **ctx.accounts.treasury.to_account_info().try_borrow_mut_lamports()? -= refund;
-    **ctx.accounts.depositor.to_account_info().try_borrow_mut_lamports()? += refund;
+    {
+        let treasury_info = ctx.accounts.treasury.to_account_info();
+        let mut treasury_lamports = treasury_info.try_borrow_mut_lamports()?;
+        **treasury_lamports = (**treasury_lamports)
+            .checked_sub(refund)
+            .ok_or(DarkDropError::Overflow)?;
+    }
+    {
+        let depositor_info = ctx.accounts.depositor.to_account_info();
+        let mut depositor_lamports = depositor_info.try_borrow_mut_lamports()?;
+        **depositor_lamports = (**depositor_lamports)
+            .checked_add(refund)
+            .ok_or(DarkDropError::Overflow)?;
+    }
 
     // Track for admin_sweep obligation accounting.
     let vault = &mut ctx.accounts.vault;
