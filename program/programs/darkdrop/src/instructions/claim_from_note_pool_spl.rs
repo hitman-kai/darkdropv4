@@ -30,9 +30,11 @@ use crate::poseidon::{poseidon_hash, pubkey_to_field};
 ///      `[b"pool_nullifier_spl", mint, pool_nullifier_hash]`.
 ///   3. CreditNoteSpl carries `mint` so withdraw_credit_spl knows
 ///      which mint vault to debit.
-///   4. Bumps `vault.total_claims` (SOL pool claim does NOT bump this
-///      counter; SPL does to keep the global claim counter consistent
-///      across both layers — same behavior as `claim_credit_spl`).
+///   4. Bumps the global `vault.total_claims` counter — same convention as
+///      every other claim path (claim_credit, claim_credit_spl,
+///      claim_from_note_pool). There is no `NotePoolSpl` singleton, so
+///      unlike the SOL pool claim there is no additional per-layer counter
+///      to bump here. (issue #47 — Audit #7 I-02.)
 ///
 /// ZERO TOKEN MOVEMENT.
 pub fn handle_claim_from_note_pool_spl(
@@ -87,8 +89,8 @@ pub fn handle_claim_from_note_pool_spl(
     // Pool nullifier — Anchor `init` enforces single-use.
     ctx.accounts.pool_nullifier_account_spl.nullifier_hash = pool_nullifier_hash;
 
-    // Global cross-asset claim counter (SPL adds this where SOL doesn't —
-    // documented in module comment).
+    // Global cross-asset/cross-layer claim counter — bumped by every claim
+    // path (documented in module comment; issue #47 — Audit #7 I-02).
     let vault = &mut ctx.accounts.vault;
     vault.total_claims = vault.total_claims
         .checked_add(1)
