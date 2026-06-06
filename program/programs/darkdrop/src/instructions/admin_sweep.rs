@@ -34,8 +34,20 @@ pub fn handle_admin_sweep(ctx: Context<AdminSweep>) -> Result<()> {
     require!(sweep_amount > 0, DarkDropError::ZeroAmount);
 
     // Direct lamport manipulation — treasury is program-owned
-    **treasury.to_account_info().try_borrow_mut_lamports()? -= sweep_amount;
-    **authority.to_account_info().try_borrow_mut_lamports()? += sweep_amount;
+    {
+        let treasury_info = treasury.to_account_info();
+        let mut treasury_lamports = treasury_info.try_borrow_mut_lamports()?;
+        **treasury_lamports = (**treasury_lamports)
+            .checked_sub(sweep_amount)
+            .ok_or(DarkDropError::Overflow)?;
+    }
+    {
+        let authority_info = authority.to_account_info();
+        let mut authority_lamports = authority_info.try_borrow_mut_lamports()?;
+        **authority_lamports = (**authority_lamports)
+            .checked_add(sweep_amount)
+            .ok_or(DarkDropError::Overflow)?;
+    }
 
     emit!(TreasurySweep {
         authority: authority.key(),
