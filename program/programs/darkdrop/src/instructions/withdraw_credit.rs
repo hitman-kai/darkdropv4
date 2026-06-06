@@ -57,6 +57,21 @@ pub fn handle_withdraw_credit(
         DarkDropError::UnauthorizedWithdraw
     );
 
+    // Audit 07 L-03 (defense-in-depth): reject any self-alias of the treasury PDA.
+    // The lamport transfers below debit `treasury` then credit `recipient`/`payer`;
+    // if either aliased `treasury` they'd share one lamports cell, netting the
+    // principal to zero. Benign in practice (recipient is proof-bound), but the
+    // explicit guard removes the edge and makes the invariant visible.
+    let treasury_key = ctx.accounts.treasury.key();
+    require!(
+        ctx.accounts.recipient.key() != treasury_key,
+        DarkDropError::UnauthorizedWithdraw
+    );
+    require!(
+        ctx.accounts.payer.key() != treasury_key,
+        DarkDropError::UnauthorizedWithdraw
+    );
+
     // Recompute the re-randomized commitment (Audit 06 M-02). original is fixed;
     // the salt is what differs between standard and pool notes:
     //   original = Poseidon(amount, blinding_factor)
