@@ -17,6 +17,7 @@ This directory contains all security audit reports for the DarkDrop V4 Solana pr
 | 4 | [Post-Revoke Review](AUDIT-04-POST-REVOKE.md) | April 20, 2026 | V3 Note Pool layer + `revoke_drop` + `DepositReceipt` + counter invariants + privacy analysis | 0 CRITICAL, 0 HIGH, 1 MEDIUM (fixed in-cycle), 4 LOW, 4 INFO |
 | 5 | [Schema v2 + Pool Deposit](AUDIT-05-SCHEMA-V2-AND-POOL-DEPOSIT.md) | April 24, 2026 | `create_drop_to_pool` + `migrate_schema_v2` + `authority_rotation` + I-04/L-03-NEW fix verification + cross-layer invariants | 0 CRITICAL, 0 HIGH, 0 MEDIUM, 3 LOW (1 fixed in-cycle), 4 INFO |
 | 6 | [Deep Scan, Post-SPL](AUDIT-06-DEEP-SCAN.md) | May 25, 2026 | Fresh full-repo walk; SPL/multi-mint extension + V3 relayer surface + gasless trust boundary; no inherited findings | 0 CRITICAL, 0 HIGH, 4 MEDIUM, 4 LOW, 3 INFO |
+| 7 | [Jelleo Ruleset Cross-Check](AUDIT-07-JELLEO-RULESET-CROSSCHECK.md) | June 6, 2026 | Independent second-opinion pass vs. the Jelleo SOL-001…020 ruleset; full instruction surface + state + verifier; multi-agent find + adversarial 3-lens verify | 0 CRITICAL, 0 new HIGH, 0 new MEDIUM, 3 LOW, 2 INFO (H-02 re-confirmed/accepted; M-04 re-confirmed/open) |
 
 ---
 
@@ -59,6 +60,12 @@ This directory contains all security audit reports for the DarkDrop V4 Solana pr
 | No Poseidon domain separation across recipient/commitment/nullifier contexts | #6 I-01 | INFO | **Advisory** | Practical risk negligible; consider domain tags on next ceremony rotation |
 | `migrate_vault.rs` reads authority via hardcoded byte offset with panicking `unwrap()` | #6 I-02 | INFO | **Advisory** | One-shot migration; effectively dead code. Replace `unwrap()` with fallible conversion or mark `#[deprecated]` |
 | `processed-txs.ts` dedups on TX signature, not nullifier | #6 I-03 | INFO | **Advisory** | Naming overstates protection; add comment block clarifying it dedupes deposit retries only |
+| create_drop leaf unverified (re-confirmed) | #7 (= #2 H-02) | HIGH | **Accepted** | Re-confirmed in Audit #7; disposition unchanged (commitment-mixer trust model). `create_drop_to_pool` is the honest on-chain-leaf path |
+| Direct-lamport `+=`/`-=` not `checked_*` | #7 L-01 | LOW | **Open (hardening)** | Safe today via `overflow-checks = true`; convert to `checked_*` so safety doesn't depend on the profile flag |
+| `withdraw_credit[_spl]` missing obligation-floor symmetry | #7 L-02 | LOW | **Open (defense-in-depth)** | `revoke_drop`/`admin_sweep` bound by `outstanding`; withdraw does not. Note: does NOT fix H-02; weigh DoS trade-off |
+| `withdraw_credit` no `recipient/payer != treasury` guard | #7 L-03 | LOW | **Open (defense-in-depth)** | Benign self-alias edge; one-line guard |
+| Stale `NR_PUBLIC_INPUTS = 6` constant | #7 I-01 | INFO | **Open (cleanup)** | Dead code + obsolete comment in `state.rs`; delete |
+| `total_claims` SOL/SPL note-pool counter divergence | #7 I-02 | INFO | **Open (cleanup)** | Telemetry only; reconcile the two paths |
 
 ---
 
