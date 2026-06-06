@@ -40,10 +40,6 @@ pub const ROTATION_DELAY: i64 = 5;
 #[cfg(not(feature = "short-revoke-timeout"))]
 pub const ROTATION_DELAY: i64 = 86_400;
 
-// Number of public inputs in the Groth16 proof
-// [merkle_root, nullifier_hash, recipient, amount_commitment, password_hash, amount]
-pub const NR_PUBLIC_INPUTS: usize = 6;
-
 // Auto-generated Poseidon zero hashes for Merkle tree initialization.
 // zeros[0] = 0
 // zeros[i+1] = Poseidon(zeros[i], zeros[i])
