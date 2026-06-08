@@ -678,8 +678,22 @@ export default function ClaimPage() {
 
       setStage("done");
     } catch (err: any) {
-      console.error("Claim failed:", err.message);
-      setError(err.message || "Claim failed");
+      console.error("Claim failed:", err);
+      // Raw runtime exceptions (e.g. a TypeError from a malformed claim code or
+      // an undefined field) would otherwise leak internal JS messages into the
+      // UI. Surface a sanitized, human-readable message for those; intentional
+      // errors (insufficient funds, already claimed, decoder validation, …)
+      // carry a meaningful message and are shown as-is.
+      const isRawRuntimeError =
+        err instanceof TypeError ||
+        err instanceof RangeError ||
+        err instanceof ReferenceError ||
+        err instanceof SyntaxError;
+      setError(
+        isRawRuntimeError || !err?.message
+          ? "Invalid or corrupted claim code, or an unexpected error occurred. Please double-check your code and try again."
+          : err.message
+      );
       setStage("error");
     }
   };
