@@ -113,6 +113,16 @@ export async function decodeClaimCode(
   const asset = parts[3] as Asset;
   const encryption = parts[4] as Encryption;
 
+  // Guard against malformed codes that pass the prefix check but are missing
+  // colon-separated fields. Raw codes are darkdrop:v4:cluster:asset:enc:payload
+  // (6 fields); encrypted codes carry an extra hint+ciphertext (7 fields). Without
+  // this, a truncated code like "darkdrop:v4:gibberish" reaches the decoders with
+  // an undefined payload and throws a raw TypeError that leaks into the UI.
+  const minFields = encryption === "pbkdf2" || encryption === "aes" ? 7 : 6;
+  if (parts.length < minFields) {
+    throw new Error("Invalid or corrupted claim code format.");
+  }
+
   let jsonStr: string;
   let passwordHint: string | undefined;
 
